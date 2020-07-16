@@ -1,0 +1,241 @@
+C51 COMPILER V9.53.0.0   MCU_SAL_TIMER                                                     10/14/2019 10:20:43 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE MCU_SAL_TIMER
+OBJECT MODULE PLACED IN .\mcu_sal_lib\mcu_sal_timer.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\mcu_sal_lib\mcu_sal_timer.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FL
+                    -OATFUZZY(3) OPTIMIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(D:/Work Project/SingleChipWorkSpaveNew
+                    -/C51_UBOOT/inc;D:/Work Project/SingleChipWorkSpaveNew/C51_UBOOT/mcu_sal_lib;C:/SiliconLabs/SimplicityStudio/v3/developer
+                    -/sdks/si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/in
+                    -c;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/develo
+                    -per/sdks/si8051/v3//Lib/efm8lb1;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:/SiliconLa
+                    -bs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/peripheral_driver/inc) PRINT(.\mcu_sal_lib\mcu_sal_timer
+                    -.lst) COND PAGEWIDTH(120) PAGELENGTH(65) OBJECT(.\mcu_sal_lib\mcu_sal_timer.OBJ)
+
+line level    source
+
+   1          #include "mcu_sal.h"
+   2          
+   3          #ifdef MCU_TIMER_MODULE_ENABLED
+   4          
+   5          static TIMER_LSIT_T *timer_list = NULL;
+   6          
+   7          /*
+   8           * when timer_list->jiffies is setted 0, there must be init timer_list->timer[i]->expires again
+   9           */
+  10          static void _timer_jiffies_zero_by_isr(uint32_t timeout)
+  11          {
+  12   1              uint8_t i = 0;
+  13   1      
+  14   1              ASSERT(timer_list);
+  15   1      
+  16   1              //JIFFIES_MAX - (timeout + timer_list->jiffies) > timeout;
+  17   1              if(JIFFIES_MAX - timer_list->jiffies < 2 * timeout)
+  18   1              {
+  19   2                      timer_list->jiffies = 0;
+  20   2      
+  21   2                      for(i = 0; i < timer_list->num; i++)
+  22   2                      {
+  23   3                              if(timer_list->timer[i]->function != NULL)
+  24   3                              {
+  25   4                                      timer_list->timer[i]->expires = timer_list->timer[i]->timeout;
+  26   4                              }
+  27   3                      }
+  28   2              }
+  29   1      }
+  30          
+  31          /*
+  32           * when timer_list->jiffies is setted 0, there must be init timer_list->timer[i]->expires again
+  33           */
+  34          static void _timer_jiffies_zero(uint32_t timeout)
+  35          {
+  36   1              uint8_t i = 0;
+  37   1      
+  38   1              ASSERT(timer_list);
+  39   1      
+  40   1              //JIFFIES_MAX - (timeout + timer_list->jiffies) > timeout;
+  41   1              if(JIFFIES_MAX - timer_list->jiffies < 2 * timeout)
+  42   1              {
+  43   2                      timer_list->jiffies = 0;
+  44   2      
+  45   2                      for(i = 0; i < timer_list->num; i++)
+  46   2                      {
+  47   3                              if(timer_list->timer[i]->function != NULL)
+  48   3                                      timer_list->timer[i]->expires = timer_list->timer[i]->timeout; //because timer_list->jiffies = 0, time
+C51 COMPILER V9.53.0.0   MCU_SAL_TIMER                                                     10/14/2019 10:20:43 PAGE 2   
+
+             -r_list->timer[i]->expires = timer_list->timer[i]->timeout + 0(timer_list->jiffies)
+  49   3                      }
+  50   2              }
+  51   1      }
+  52          
+  53          
+  54          /*
+  55           * save new tiner struct, there must be expires = jiffts + varible, because when jiffts = 0, expires is al
+             -so changed
+  56           */
+  57          void timer_add(TIMER_STRUCT_T *timer)
+  58          {
+  59   1              ASSERT(timer);
+  60   1      
+  61   1              if(timer_list->num < TIMER_NUM)
+  62   1              {
+  63   2                      timer_list->timer[timer_list->num] = timer;
+  64   2              }
+  65   1              else
+  66   1              {
+  67   2                      return;
+  68   2              }
+  69   1      
+  70   1              timer_list->timer[timer_list->num]->enable           = 0;     //add new timer default state is disable
+  71   1              timer_list->timer[timer_list->num]->timeout_flag = false;
+  72   1      
+  73   1              _timer_jiffies_zero(timer->timeout);
+  74   1              timer_list->timer[timer_list->num]->expires  = timer->timeout + timer_list->jiffies;
+  75   1      
+  76   1              timer_list->num ++;
+  77   1      }
+  78          
+  79          /*
+  80           * modify the software timer timeout time
+  81           */
+  82          static void _timer_mod(TIMER_STRUCT_T * timer, uint32_t timeout)
+  83          {
+  84   1              ASSERT(timer);
+  85   1      
+  86   1              _timer_jiffies_zero_by_isr(timeout);
+  87   1      
+  88   1              timer->timeout  = timeout;
+  89   1              timer->expires  = timeout + timer_list->jiffies;
+  90   1      }
+  91          
+  92          void timer_list_init(TIMER_LSIT_T *list)
+  93          {
+  94   1              uint8_t i = 0;
+  95   1      
+  96   1              ASSERT(list);
+  97   1      
+  98   1              timer_list = list;
+  99   1      
+ 100   1              for(i = 0; i < TIMER_NUM; i++)
+ 101   1              {
+ 102   2                      timer_list->timer[i] = NULL;
+ 103   2              }
+ 104   1      
+ 105   1              timer_list->num            = 0;
+ 106   1              timer_list->jiffies    = 0;
+ 107   1      }
+ 108          
+ 109          /*
+C51 COMPILER V9.53.0.0   MCU_SAL_TIMER                                                     10/14/2019 10:20:43 PAGE 3   
+
+ 110           * start soft timer
+ 111           */
+ 112          void timer_start(TIMER_STRUCT_T * timer)
+ 113          {
+ 114   1              ASSERT(timer);
+ 115   1              timer->enable = 1;
+ 116   1      }
+ 117          
+ 118          /*
+ 119           * stop soft timer
+ 120           */
+ 121          void timer_stop(TIMER_STRUCT_T * timer)
+ 122          {
+ 123   1              ASSERT(timer);
+ 124   1              timer->enable = 0;
+ 125   1      }
+ 126          
+ 127          /*max delay 65¡£535s*/
+ 128          void timer_delay_ms(uint16_t ms)
+ 129          {
+ 130   1              uint32_t current_time = 0;
+ 131   1              uint8_t i = 0, timer_enable_save[TIMER_NUM];
+ 132   1      
+ 133   1              ASSERT(timer_list);
+ 134   1      
+ 135   1          _timer_jiffies_zero(ms);
+ 136   1      
+ 137   1          //disable all timer_list, in order to prevent current_time = JIFFIES_MAX, timer_list->jiffies is sette
+             -d 0 right now
+ 138   1          for(i = 0; (timer_list->timer[i] != NULL) && (i < timer_list->num); i++)
+ 139   1          {
+ 140   2              timer_enable_save[i] = timer_list->timer[i]->enable;
+ 141   2              timer_list->timer[i]->enable = 0;
+ 142   2          }
+ 143   1      
+ 144   1              current_time = timer_list->jiffies;
+ 145   1          while(timer_list->jiffies <  ms + current_time);
+ 146   1      
+ 147   1          //restore all timer_list status
+ 148   1          for(i = 0; (timer_list->timer[i] != NULL) && (i < timer_list->num); i++)
+ 149   1          {
+ 150   2                      timer_list->timer[i]->enable = timer_enable_save[i];
+ 151   2          }
+ 152   1      }
+ 153          
+ 154          void timer_run(void)
+ 155          {
+ 156   1              uint8_t i = 0;
+ 157   1      
+ 158   1              ASSERT(timer_list);
+ 159   1      
+ 160   1              for(i = 0; (timer_list->timer[i] != NULL) && (i < timer_list->num); i++)
+ 161   1              {
+ 162   2                      if(timer_list->timer[i]->timeout_flag)
+ 163   2                      {
+ 164   3                              timer_list->timer[i]->function();
+ 165   3                              timer_list->timer[i]->timeout_flag = false;
+ 166   3                      }
+ 167   2              }
+ 168   1      }
+ 169          
+ 170          uint32_t timer_get_tick(void)
+ 171          {
+C51 COMPILER V9.53.0.0   MCU_SAL_TIMER                                                     10/14/2019 10:20:43 PAGE 4   
+
+ 172   1              RE_ASSERT(timer_list);
+ 173   1              return timer_list->jiffies;
+ 174   1      }
+ 175          
+ 176          void timer_update(void)
+ 177          {
+ 178   1              uint8_t i = 0;
+ 179   1      
+ 180   1              ASSERT(timer_list);
+ 181   1      
+ 182   1              for(i = 0; (timer_list->timer[i] != NULL) && (i < timer_list->num); i++)
+ 183   1              {
+ 184   2                      if((timer_list->timer[i]->enable) && (timer_list->timer[i]->expires <= timer_list->jiffies))
+ 185   2                      {
+ 186   3                              timer_list->timer[i]->timeout_flag = true;
+ 187   3                              _timer_mod(timer_list->timer[i], timer_list->timer[i]->timeout); //update timeout time
+ 188   3                      }
+ 189   2              }
+ 190   1      
+ 191   1              timer_list->jiffies ++;
+ 192   1      }
+ 193          
+ 194          #endif
+ 195          
+ 196          
+ 197          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2187    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      3      48
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

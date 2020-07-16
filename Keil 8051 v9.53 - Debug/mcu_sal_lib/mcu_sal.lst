@@ -1,0 +1,143 @@
+C51 COMPILER V9.53.0.0   MCU_SAL                                                           10/14/2019 10:20:33 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE MCU_SAL
+OBJECT MODULE PLACED IN .\mcu_sal_lib\mcu_sal.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\mcu_sal_lib\mcu_sal.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOATFUZ
+                    -ZY(3) OPTIMIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(D:/Work Project/SingleChipWorkSpaveNew/C51_U
+                    -BOOT/inc;D:/Work Project/SingleChipWorkSpaveNew/C51_UBOOT/mcu_sal_lib;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/
+                    -si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc;C:/S
+                    -iliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/developer/sd
+                    -ks/si8051/v3//Lib/efm8lb1;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:/SiliconLabs/Sim
+                    -plicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/peripheral_driver/inc) PRINT(.\mcu_sal_lib\mcu_sal.lst) COND P
+                    -AGEWIDTH(120) PAGELENGTH(65) OBJECT(.\mcu_sal_lib\mcu_sal.OBJ)
+
+line level    source
+
+   1          #include "mcu_sal.h"
+   2          
+   3          void mcu_sal_init()
+   4          {
+   5   1      #if defined(MCU_TASK_MODULE_ENABLED)
+   6   1              static TASK_LIST_T             task_list;   //create task scheduler manager list
+   7   1      #endif
+   8   1      
+   9   1      #if defined(MCU_TERMINAL_MODULE_ENABLED)
+  10   1              static TERMINAL_STRUCT_T   terminal;    //create terminal handle, include UART, USB, I2CµÈ
+  11   1      #endif
+  12   1      
+  13   1      #if defined(MCU_TIMER_MODULE_ENABLED)
+  14   1              static TIMER_LSIT_T        timer_list;   //create software timer list
+  15   1      #endif
+  16   1      
+  17   1      #if defined(MCU_ADC_MODULE_ENABLED)
+  18   1              static ADC_LIST_T                       adc_list;
+  19   1      #endif
+  20   1      
+  21   1      #if defined(MCU_FLASH_BUFF_MODULE_ENABLED)
+  22   1              static FLASH_BUFF_STRUCT_T  flash_buff;
+  23   1      #endif
+  24   1      
+  25   1      #if defined(MCU_REG_MAP_MODULE_ENABLED)
+  26   1              static REG_MAP_LIST_T           reg_map_list;
+  27   1      #endif
+  28   1      
+  29   1      #if defined(MCU_LOG_MODULE_ENABLED) && (LOG_WAY == 0)
+  30   1              static uint8_t                          log_buff[LOG_RAM_SIZE];   //create log buff
+  31   1      #endif
+  32   1      
+  33   1      #if defined(MCU_APP_PAGE_MODULE_ENABLED)
+  34   1              static PAGES_LIST_T             app_page_list;
+  35   1      #endif
+  36   1      
+  37   1      #if defined(MCU_PID_MODULE_ENABLED)
+  38   1              static PID_STRUCT_T             pid;
+  39   1      #endif
+  40   1      
+  41   1      
+  42   1      #if defined(MCU_TASK_MODULE_ENABLED)
+  43   1              task_list_init(&task_list);
+  44   1      #endif
+  45   1      
+  46   1      #if defined(MCU_TERMINAL_MODULE_ENABLED)
+  47   1              lib_terminal_init();  //hardware UART INIT
+  48   1              terminal_init(&terminal);
+C51 COMPILER V9.53.0.0   MCU_SAL                                                           10/14/2019 10:20:33 PAGE 2   
+
+  49   1      #endif
+  50   1      
+  51   1      #if defined(MCU_TIMER_MODULE_ENABLED)
+  52   1              lib_timer_init();         //hardware TIMER INIT
+  53   1              timer_list_init(&timer_list);
+  54   1      #endif
+  55   1      
+  56   1      #if defined(MCU_ADC_MODULE_ENABLED)
+  57   1              lib_adc_init();         //hardware ADC INIT
+  58   1              adc_list_init(&adc_list);
+  59   1      #endif
+  60   1      
+  61   1      #if defined(MCU_I2C_MASTER_MODULE_ENABLED)
+  62   1              i2c_master_init();
+  63   1      #endif
+  64   1      
+  65   1      #if defined(MCU_I2C_SLAVE_MODULE_ENABLED)
+                      i2c_slave_init();
+              #endif
+  68   1      
+  69   1      #if defined(MCU_FLASH_API_MODULE_ENABLED)
+  70   1      #endif
+  71   1      
+  72   1      #if defined(MCU_FLASH_BUFF_MODULE_ENABLED)
+  73   1              flash_init(&flash_buff);
+  74   1      #endif
+  75   1      
+  76   1      #if defined(MCU_REG_MAP_MODULE_ENABLED)
+  77   1              reg_map_list_init(&reg_map_list);
+  78   1      #endif
+  79   1      
+  80   1      #if defined(MCU_LOG_MODULE_ENABLED) && (LOG_WAY == 0)
+  81   1              log_init(&log_buff[0]);
+  82   1      #endif
+  83   1      
+  84   1      #if defined(MCU_APP_PAGE_MODULE_ENABLED)
+  85   1              app_page_list_init(&app_page_list);
+  86   1      #endif
+  87   1      
+  88   1      #if defined(MCU_DBG_CMD_MODULE_ENABLED)
+  89   1      
+  90   1      #endif
+  91   1      
+  92   1      #if defined(MCU_PID_MODULE_ENABLED)
+  93   1              pid_init(&pid);
+  94   1      #endif
+  95   1      
+  96   1      #if defined(MCU_MDIO_MODULE_ENABLED)
+  97   1              mdio_init();
+  98   1      #endif
+  99   1      }
+ 100          
+ 101          void mcu_sal_empty(char *fmt,...)
+ 102          {
+ 103   1              fmt = NULL;
+ 104   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    117    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   2507      43
+   PDATA SIZE       =   ----    ----
+C51 COMPILER V9.53.0.0   MCU_SAL                                                           10/14/2019 10:20:33 PAGE 3   
+
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

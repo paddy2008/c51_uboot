@@ -1,0 +1,279 @@
+C51 COMPILER V9.53.0.0   MCU_SAL_FLASH                                                     10/14/2019 10:20:35 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE MCU_SAL_FLASH
+OBJECT MODULE PLACED IN .\mcu_sal_lib\mcu_sal_flash.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\mcu_sal_lib\mcu_sal_flash.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FL
+                    -OATFUZZY(3) OPTIMIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(D:/Work Project/SingleChipWorkSpaveNew
+                    -/C51_UBOOT/inc;D:/Work Project/SingleChipWorkSpaveNew/C51_UBOOT/mcu_sal_lib;C:/SiliconLabs/SimplicityStudio/v3/developer
+                    -/sdks/si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/in
+                    -c;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/develo
+                    -per/sdks/si8051/v3//Lib/efm8lb1;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:/SiliconLa
+                    -bs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/peripheral_driver/inc) PRINT(.\mcu_sal_lib\mcu_sal_flash
+                    -.lst) COND PAGEWIDTH(120) PAGELENGTH(65) OBJECT(.\mcu_sal_lib\mcu_sal_flash.OBJ)
+
+line level    source
+
+   1          #include "mcu_sal.h"
+   2          
+   3          #ifdef MCU_FLASH_API_MODULE_ENABLED
+   4          
+   5          void flash_read (FLADDR addr, uint8_t *value, uint16_t len)
+   6          {
+   7   1         uint16_t i = 0;
+   8   1      
+   9   1         for (i = 0; i < len; i++)
+  10   1         {
+  11   2            *value ++ = lib_flash_read_byte (addr + i);
+  12   2         }
+  13   1      }
+  14          
+  15          /*
+  16           *the second parameter len valid range is 0 to FLASH_PAGE_SIZE
+  17           *the  <from> + <len> must be less than the maximum flash address.
+  18           */
+  19          static int8_t flash_erase_range(FLADDR from, uint16_t len)
+  20          {
+  21   1              FLADDR  erase_start_addr = GET_FLASH_PAGE_START_ADDR(from);
+  22   1              FLADDR  erase_end_addr   = (FLADDR)(from + len) ,cur_addr = 0;
+  23   1              uint16_t i = 0;
+  24   1              uint8_t save_buf[FLASH_PAGE_SIZE] = {0};
+  25   1      
+  26   1              if((len > FLASH_PAGE_SIZE) || (erase_end_addr >  FLASH_MAX_ADDR))
+  27   1              {
+  28   2                      lib_log("\r\n flash_erase_range failed");
+  29   2                      return -1;
+  30   2              }
+  31   1      
+  32   1              flash_read(erase_start_addr, save_buf, FLASH_PAGE_SIZE);
+  33   1      
+  34   1              lib_flash_erase_page(erase_start_addr);
+  35   1      
+  36   1              for(i = 0; i < FLASH_PAGE_SIZE; i++)
+  37   1              {
+  38   2                      cur_addr = erase_start_addr + i;
+  39   2      
+  40   2                      if (cur_addr < from || cur_addr >= erase_end_addr)
+  41   2                      {
+  42   3                              lib_flash_write_byte(cur_addr, save_buf[i]);
+  43   3                      }
+  44   2              }
+  45   1      
+  46   1              return 0;
+  47   1      }
+  48          
+C51 COMPILER V9.53.0.0   MCU_SAL_FLASH                                                     10/14/2019 10:20:35 PAGE 2   
+
+  49          int8_t flash_write(FLADDR addr, uint8_t *value, uint16_t len)
+  50          {
+  51   1              uint16_t i = 0;
+  52   1      
+  53   1              if (flash_erase_range (addr, len) < 0)
+  54   1              {
+  55   2                      lib_log("\r\n flash_write failed");
+  56   2                      return -1;
+  57   2              }
+  58   1      
+  59   1              for (i = addr; i < addr + len; i++)
+  60   1              {
+  61   2                      lib_flash_write_byte (i, *value ++);
+  62   2              }
+  63   1      
+  64   1              return 0;
+  65   1      }
+  66          
+  67          int8_t flash_update(FLADDR addr, uint8_t *value, uint16_t len)
+  68          {
+  69   1              return flash_write(addr, value, len);
+  70   1      }
+  71          
+  72          void flash_write_byte(FLADDR addr, uint8_t value)
+  73          {
+  74   1              uint16_t page_start_addr = 0 , i = 0;
+  75   1              uint8_t  save_buf[FLASH_PAGE_SIZE] = {0};
+  76   1              uint8_t  cur_value = lib_flash_read_byte(addr);
+  77   1      
+  78   1              if(cur_value == value)  //if want to write value is equal to value info flash,there is not need to write 
+             -it info flash
+  79   1              {
+  80   2                      return;
+  81   2              }
+  82   1              else
+  83   1              {
+  84   2                      if(cur_value != 0xFF)   //indicate this addr was writen value,so it must be erase page at first
+  85   2                      {
+  86   3                              page_start_addr = GET_FLASH_PAGE_START_ADDR(addr);
+  87   3      
+  88   3                              flash_read(page_start_addr, save_buf, FLASH_PAGE_SIZE);
+  89   3      
+  90   3                              lib_flash_erase_page(page_start_addr);
+  91   3      
+  92   3                              if(addr - page_start_addr >= 0 && addr - page_start_addr < FLASH_PAGE_SIZE)
+  93   3                              {
+  94   4                                      save_buf[addr - page_start_addr]  = value;
+  95   4                              }
+  96   3      
+  97   3                              for(i = 0; i < FLASH_PAGE_SIZE; i++)
+  98   3                              {
+  99   4                                      lib_flash_write_byte(page_start_addr + i, save_buf[i]);
+ 100   4                              }
+ 101   3                      }
+ 102   2                      else  //indicate this addr was not writen value, it can be writen directly
+ 103   2                      {
+ 104   3                              lib_flash_write_byte(addr, value);
+ 105   3                      }
+ 106   2              }
+ 107   1      }
+ 108          
+ 109          /*
+ 110          void flash_write(FLADDR addr, uint8_t *value, uint16_t len)
+C51 COMPILER V9.53.0.0   MCU_SAL_FLASH                                                     10/14/2019 10:20:35 PAGE 3   
+
+ 111          {
+ 112                  uint16_t page_start_addr = 0 , i = 0;
+ 113                  uint8_t  save_buf[512] = {0}, cur_value = 0;
+ 114                  uint8_t *ptr = value;
+ 115          
+ 116                  bool isErasePage = false;
+ 117          
+ 118                  for (i = 0; i < len; i++)
+ 119                  {
+ 120                          cur_value = lib_flash_read_byte(addr + i);
+ 121          
+ 122                          if((cur_value != 0xFF) && (cur_value != *ptr++))
+ 123                          {
+ 124                                  isErasePage = true;
+ 125                                  break;
+ 126                          }
+ 127                  }
+ 128          
+ 129                  ptr = value;
+ 130          
+ 131                  if(isErasePage)
+ 132                  {
+ 133                          page_start_addr = GET_FLASH_PAGE_START_ADDR(addr);
+ 134          
+ 135                          flash_read(page_start_addr, save_buf, FLASH_PAGE_SIZE);
+ 136          
+ 137                          lib_flash_erase_page(page_start_addr);
+ 138          
+ 139                          for (i = addr; i < addr + len; i++)
+ 140                          {
+ 141                                  if(((i - page_start_addr) >= 0) && ((i - page_start_addr) < FLASH_PAGE_SIZE))
+ 142                                  {
+ 143                                          save_buf[i - page_start_addr] = *ptr++;
+ 144                                  }
+ 145                          }
+ 146          
+ 147                          for(i = 0; i < FLASH_PAGE_SIZE; i++)
+ 148                          {
+ 149                                  lib_flash_write_byte(page_start_addr + i, save_buf[i]);
+ 150                          }
+ 151                  }
+ 152                  else
+ 153                  {
+ 154                          for (i = addr; i < addr + len; i++)
+ 155                          {
+ 156                                  lib_flash_write_byte(i, *ptr++);
+ 157                          }
+ 158                  }
+ 159          }
+ 160          */
+ 161          #endif
+ 162          
+ 163          #ifdef MCU_FLASH_BUFF_MODULE_ENABLED
+ 164          
+ 165          /*
+ 166           * 以下的三个函数flash_init,flash_recv_byte和flash_write_run
+ 167           * 主要应用于i2c master端向i2c slave端写数据的情况下，并且要求写入的数据
+ 168           * 保存到flash中,其中flash_init负责分配ram空间并做初始化，
+ 169           * flash_recv_byte负责不停的接收数据，flash_write_run负责不停的将数据
+ 170           * 写入到flash中，所以flash_write_run必须是周期性执行，
+ 171           */
+ 172          static FLASH_BUFF_STRUCT_T *_flash_buff = NULL;
+ 173          
+C51 COMPILER V9.53.0.0   MCU_SAL_FLASH                                                     10/14/2019 10:20:35 PAGE 4   
+
+ 174          void flash_init(FLASH_BUFF_STRUCT_T *flash)
+ 175          {
+ 176   1              ASSERT(flash);
+ 177   1      
+ 178   1              _flash_buff = flash;
+ 179   1      
+ 180   1              memset((void *)_flash_buff, 0 , sizeof(FLASH_BUFF_STRUCT_T));
+ 181   1      }
+ 182          
+ 183          /*
+ 184           * 这是一个循环buff,虽然buff的大小只有128字节，但是实际上可以连续接收大于128字节的数据
+ 185           * 处理流程如下:
+ 186           * 1.当连续接收10个字节以后，前10个位置被占用
+ 187           * 2.当接收第11个字节的时候，并不是放到第11个位置，而是先检查前10个位置中是否有空间被释放
+ 188           * 如果有，则写入响应的空间，如果没有，才写到第11个位置
+ 189           */
+ 190          void flash_recv_byte(FLADDR addr, uint8_t offset, const uint8_t value)  //this function is called by i2c s
+             -lave isr
+ 191          {
+ 192   1              uint8_t index = 0, page = 0;
+ 193   1      
+ 194   1              ASSERT(_flash_buff);
+ 195   1      
+ 196   1              for(index = 0; index < FLASH_USER_PAGE_SIZE; index ++)
+ 197   1              {
+ 198   2                      if(MY_GET_BIT(_flash_buff->buff[index].offset, 7) == 0x0) //This addr is empty
+ 199   2                      {
+ 200   3                              _flash_buff->buff[index].addr       = addr;
+ 201   3                              _flash_buff->buff[index].value      = value;
+ 202   3                              _flash_buff->buff[index].offset     = (offset | (1 << 7));
+ 203   3                              _flash_buff->num ++;
+ 204   3                              break;
+ 205   3                      }
+ 206   2              }
+ 207   1      }
+ 208          
+ 209          void flash_write_run(void)
+ 210          {
+ 211   1              FLADDR  addr = 0;
+ 212   1              uint8_t i = 0, page = 0;
+ 213   1      
+ 214   1              ASSERT(_flash_buff);
+ 215   1      
+ 216   1              if(_flash_buff->num == 0)
+ 217   1              {
+ 218   2                      return;
+ 219   2              }
+ 220   1      
+ 221   1              for (i = 0; i < FLASH_USER_PAGE_SIZE, _flash_buff->num; i++)
+ 222   1              {
+ 223   2                      if(MY_GET_BIT(_flash_buff->buff[i].offset, 7))  //if the buff is not empty
+ 224   2                      {
+ 225   3                              flash_write_byte((FLADDR)(_flash_buff->buff[i].addr  + OFFSET_INDEX(_flash_buff->buff[i].offset)), _fla
+             -sh_buff->buff[i].value);
+ 226   3                              _flash_buff->num -- ;
+ 227   3                              _flash_buff->buff[i].offset = MY_CLEAR_BIT(_flash_buff->buff[i].offset, 7);
+ 228   3                      }
+ 229   2              }
+ 230   1      }
+ 231          
+ 232          #endif
+ 233          
+
+C51 COMPILER V9.53.0.0   MCU_SAL_FLASH                                                     10/14/2019 10:20:35 PAGE 5   
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1196    ----
+   CONSTANT SIZE    =   1074    ----
+   XDATA SIZE       =      3    1081
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

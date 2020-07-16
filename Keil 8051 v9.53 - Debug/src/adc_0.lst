@@ -1,0 +1,349 @@
+C51 COMPILER V9.53.0.0   ADC_0                                                             07/23/2019 16:46:59 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE ADC_0
+OBJECT MODULE PLACED IN .\src\adc_0.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\src\adc_0.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOATFUZZY(3) OPTI
+                    -MIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si80
+                    -51/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:/SiliconLa
+                    -bs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc) PRINT(.\src\adc_0.lst) COND PAGEWIDTH(120) PAGELENG
+                    -TH(65) OBJECT(.\src\adc_0.OBJ)
+
+line level    source
+
+   1          /**************************************************************************//**
+   2           * Copyright (c) 2015 by Silicon Laboratories Inc. All rights reserved.
+   3           *
+   4           * http://developer.silabs.com/legal/version/v11/Silicon_Labs_Software_License_Agreement.txt
+   5           *****************************************************************************/
+   6          
+   7          #include "adc_0.h"
+   8          #include "assert.h"
+   9          
+  10          #if EFM8PDL_ADC0_AUTO_PAGE == 1
+  11          // declare variable needed for autopage enter/exit
+  12          #define DECL_PAGE uint8_t savedPage
+  13          // enter autopage section
+  14          #define SET_PAGE(p)     do                                                    \
+  15                                  {                                                     \
+  16                                    savedPage = SFRPAGE;  /* save current SFR page */   \
+  17                                    SFRPAGE = (p);        /* set SFR page */            \
+  18                                  } while(0)
+  19          // exit autopage section
+  20          #define RESTORE_PAGE    do                                                    \
+  21                                  {                                                     \
+  22                                    SFRPAGE = savedPage;  /* restore saved SFR page */  \
+  23                                  } while(0)
+  24          #else
+              #define DECL_PAGE
+              #define SET_PAGE(p)
+              #define RESTORE_PAGE
+              #endif
+  29          
+  30          #define ADC0_SFRPAGE 0x30
+  31          #define ADC0_enableTempSensor()   ADC0CN0_TEMPE = 1
+  32          #define ADC0_disableTempSensor()  ADC0CN0_TEMPE = 0
+  33          
+  34          #if EFM8PDL_ADC0_USE_INIT == 1
+  35          #define MAX_SARCLK 18000000UL
+  36          #define MAX_SYSCLK 75000000UL
+  37          void ADC0_init(ADC0_ConversionStart_t convStart,
+  38                          ADC0_Resolution_t resolution,
+  39                          uint32_t sysclk)
+  40          {
+  41   1              uint8_t divider;
+  42   1              DECL_PAGE;
+  43   1              SET_PAGE(ADC0_SFRPAGE);
+  44   1      
+  45   1              // Sysclk cannot be greater than the maximum
+  46   1              SLAB_ASSERT(sysclk <= MAX_SYSCLK);
+*** WARNING C206 IN LINE 46 OF D:\Work Project\SingleChipWorkSpaveNew\C51_UBOOT\src\adc_0.c: 'SLAB_ASSERT': missing func
+             -tion-prototype
+*** ERROR C267 IN LINE 46 OF D:\Work Project\SingleChipWorkSpaveNew\C51_UBOOT\src\adc_0.c: 'SLAB_ASSERT': requires ANSI-
+             -style prototype
+  47   1      
+C51 COMPILER V9.53.0.0   ADC_0                                                             07/23/2019 16:46:59 PAGE 2   
+
+  48   1          // calculate SAR clock divider 
+  49   1          divider = 0; 
+  50   1        while(sysclk > MAX_SARCLK * (divider + 1))
+  51   1        {
+  52   2          divider++;
+  53   2        }
+  54   1      
+  55   1              ADC0CN0 = ADC0CN0_ADGN__GAIN_0P5;
+  56   1              ADC0CN1 = resolution | ADC0CN1_ADRPT__ACC_1 | ADC0CN1_ADSJST__RIGHT_NO_SHIFT;
+  57   1              ADC0CN2 = convStart | ADC0CN2_PACEN__PAC_DISABLED;
+  58   1      
+  59   1              ADC0CF0 = (divider << ADC0CF0_ADSC__SHIFT) | ADC0CF0_ADCLKSEL__SYSCLK;
+  60   1      
+  61   1              // Set min tracking time to minimum needed during fastest adc clock
+  62   1              ADC0CF1 = 5 << ADC0CF1_ADTK__SHIFT;
+  63   1      
+  64   1              // Enable ADC
+  65   1              ADC0CN0_ADEN = 1;
+  66   1              RESTORE_PAGE;
+  67   1      }
+  68          #endif //EFM8PDL_ADC0_USE_INIT
+  69          
+  70          uint8_t ADC0_getIntFlags()
+  71          {
+  72   1        uint8_t val;
+  73   1        DECL_PAGE;
+  74   1        SET_PAGE(ADC0_SFRPAGE);
+  75   1        val = ADC0CN0 & (ADC0_CONVERSION_COMPLETE_IF | ADC0_WINDOW_COMPARE_IF);
+  76   1        RESTORE_PAGE;
+  77   1        return val;
+  78   1      }
+  79          
+  80          void ADC0_clearIntFlags(uint8_t flags)
+  81          {
+  82   1        DECL_PAGE;
+  83   1        SET_PAGE(ADC0_SFRPAGE);
+  84   1      
+  85   1        // Must pass one of the valid flags
+  86   1        SLAB_ASSERT(flags & (ADC0_CONVERSION_COMPLETE_IF | ADC0_WINDOW_COMPARE_IF));
+  87   1      
+  88   1        ADC0CN0 &= ~(flags & (ADC0_CONVERSION_COMPLETE_IF | ADC0_WINDOW_COMPARE_IF));
+  89   1        RESTORE_PAGE;
+  90   1      }
+  91          
+  92          void ADC0_enableInt(uint8_t flags, bool enable)
+  93          {
+  94   1        uint8_t en;
+  95   1        DECL_PAGE;
+  96   1        SET_PAGE(0x00);
+  97   1      
+  98   1        // Must pass one of the valid flags
+  99   1        SLAB_ASSERT(flags & (ADC0_CONVERSION_COMPLETE_IF | ADC0_WINDOW_COMPARE_IF));
+ 100   1      
+ 101   1        en = (uint8_t) enable;
+ 102   1      
+ 103   1        if (flags & ADC0_CONVERSION_COMPLETE_IF)
+ 104   1        {
+ 105   2          EIE1 &= ~EIE1_EADC0__BMASK;
+ 106   2          EIE1 |= en << EIE1_EADC0__SHIFT;
+ 107   2        }
+ 108   1      
+ 109   1        if (flags & ADC0_WINDOW_COMPARE_IF)
+ 110   1        {
+C51 COMPILER V9.53.0.0   ADC_0                                                             07/23/2019 16:46:59 PAGE 3   
+
+ 111   2          EIE1 &= ~EIE1_EWADC0__BMASK;
+ 112   2          EIE1 |= en << EIE1_EWADC0__SHIFT;
+ 113   2        }
+ 114   1        RESTORE_PAGE;
+ 115   1      }
+ 116          
+ 117          
+ 118          void ADC0_enable(void)
+ 119          {
+ 120   1              DECL_PAGE;
+ 121   1              SET_PAGE(ADC0_SFRPAGE);
+ 122   1              ADC0CN0_ADEN = 1;
+ 123   1              RESTORE_PAGE;
+ 124   1      }
+ 125          
+ 126          void ADC0_disable(void)
+ 127          {
+ 128   1              DECL_PAGE;
+ 129   1              SET_PAGE(ADC0_SFRPAGE);
+ 130   1              ADC0CN0_ADEN = 0;
+ 131   1              RESTORE_PAGE;
+ 132   1      }
+ 133          
+ 134          void ADC0_setPositiveInput(ADC0_PositiveInput_t input)
+ 135          {
+ 136   1              DECL_PAGE;
+ 137   1              SET_PAGE(ADC0_SFRPAGE);
+ 138   1      
+ 139   1              // Turn on the temp sensor if it is the input
+ 140   1        if (input == ADC0_POSITIVE_INPUT_TEMP)
+ 141   1        {
+ 142   2          ADC0_enableTempSensor();
+ 143   2        }
+ 144   1        else
+ 145   1        {
+ 146   2          ADC0_disableTempSensor();
+ 147   2        }
+ 148   1      
+ 149   1              ADC0MX = input;
+ 150   1              RESTORE_PAGE;
+ 151   1      }
+ 152          
+ 153          void ADC0_startConversion(void)
+ 154          {
+ 155   1              uint8_t ADCM_save;
+ 156   1              DECL_PAGE;
+ 157   1              SET_PAGE(ADC0_SFRPAGE);
+ 158   1      
+ 159   1              // Save the conversion source and set to ADBUSY
+ 160   1              ADCM_save = ADC0CN2 & ADC0CN2_ADCM__FMASK;
+ 161   1              ADC0CN2 = (ADC0CN2 & ~ADC0CN2_ADCM__FMASK) | ADC0CN2_ADCM__ADBUSY;
+ 162   1      
+ 163   1              // Clear the conversion complete flag
+ 164   1              ADC0CN0_ADINT = 0;
+ 165   1      
+ 166   1              // Start a conversion by setting ADBUSY
+ 167   1              ADC0CN0_ADBUSY = 1;
+ 168   1      
+ 169   1              // Restore the conversion source
+ 170   1              ADC0CN2 |= ADCM_save;
+ 171   1              RESTORE_PAGE;
+ 172   1      }
+ 173          
+C51 COMPILER V9.53.0.0   ADC_0                                                             07/23/2019 16:46:59 PAGE 4   
+
+ 174          bool ADC0_isConversionComplete(void)
+ 175          {
+ 176   1              bool conversionComplete;
+ 177   1              DECL_PAGE;
+ 178   1              SET_PAGE(ADC0_SFRPAGE);
+ 179   1              conversionComplete = ADC0CN0_ADINT;
+ 180   1              RESTORE_PAGE;
+ 181   1              return conversionComplete;
+ 182   1      }
+ 183          
+ 184          uint16_t ADC0_getResult(void)
+ 185          {
+ 186   1              uint16_t result;
+ 187   1              DECL_PAGE;
+ 188   1              SET_PAGE(ADC0_SFRPAGE);
+ 189   1              result = ADC0;
+ 190   1              RESTORE_PAGE;
+ 191   1              return result;
+ 192   1      }
+ 193          
+ 194          void ADC0_setWindowCompare(uint16_t lessThan, uint16_t greaterThan)
+ 195          {
+ 196   1              DECL_PAGE;
+ 197   1              SET_PAGE(ADC0_SFRPAGE);
+ 198   1         ADC0LT = lessThan;
+ 199   1              ADC0GT = greaterThan;
+ 200   1              RESTORE_PAGE;
+ 201   1      }
+ 202          
+ 203          #if EFM8PDL_ADC0_USE_AUTOSCAN == 1
+ 204          void ADC0_setAutoscanInputs(ADC0_PositiveInput_t startChannel,
+ 205                                          uint8_t numChannels)
+ 206          {
+ 207   1              uint8_t endChannel;
+ 208   1              DECL_PAGE;
+ 209   1              SET_PAGE(ADC0_SFRPAGE);
+ 210   1      
+ 211   1              // Channels must be 1 to 4
+ 212   1              SLAB_ASSERT(numChannels <= 4 && numChannels >= 1);
+ 213   1      
+ 214   1              // Register setting for number of channels equals numChannels - 1.
+ 215   1              numChannels -= 1;
+ 216   1      
+ 217   1              ADC0ASCF = (ADC0ASCF & ~ADC0ASCF_NASCH__FMASK) | numChannels;
+ 218   1      
+ 219   1              endChannel = startChannel + numChannels;
+ 220   1      
+ 221   1              // Channels cannot end past the last channel
+ 222   1              SLAB_ASSERT(endChannel <= ADC0_POSITIVE_INPUT_NONE);
+ 223   1      
+ 224   1      #if 0
+                      // Turn on temp sensor if it is in the scan
+                if (startChannel <= ADC0_POSITIVE_INPUT_TEMP
+                    && endChannel >= ADC0_POSITIVE_INPUT_TEMP)
+                {
+                  ADC0_enableTempSensor();
+                }
+                else
+                {
+                  ADC0_disableTempSensor();
+                }
+              #endif
+ 236   1      
+C51 COMPILER V9.53.0.0   ADC_0                                                             07/23/2019 16:46:59 PAGE 5   
+
+ 237   1              ADC0MX = startChannel;
+ 238   1      
+ 239   1              RESTORE_PAGE;
+ 240   1      }
+ 241          
+ 242          void ADC0_enableAutoscan(const ADC0_AutoscanBuffer_t * buffer,
+ 243                                uint8_t numElements, //Max 64
+ 244                                ADC0_AutoscanMode_t mode)
+ 245          {
+ 246   1              uint8_t ADCM_save;
+ 247   1              DECL_PAGE;
+ 248   1              SET_PAGE(ADC0_SFRPAGE);
+ 249   1      
+ 250   1              // Save the conversion source and set to ADBUSY
+ 251   1              ADCM_save = ADC0CN2 & ADC0CN2_ADCM__FMASK;
+ 252   1              ADC0CN2 = (ADC0CN2 & ~ADC0CN2_ADCM__FMASK) | ADC0CN2_ADCM__ADBUSY;
+ 253   1      
+ 254   1              // Load the initial buffer and start the Autoscan
+ 255   1              ADC0_setNextAutoscanBuffer(buffer, numElements);
+ 256   1              ADC0ASCF |= ADC0ASCF_ASEN__START_SCAN;
+ 257   1      
+ 258   1              // Disable autoscan if only a single scan is to be performed
+ 259   1              // This prevents the next autoscan from starting after the
+ 260   1              // current one is finished.
+ 261   1        if (mode == ADC0_AUTOSCAN_MODE_SINGLE)
+ 262   1        {
+ 263   2          ADC0_disableAutoscan();
+ 264   2        }
+ 265   1      
+ 266   1              // Restore start-of-conversion source
+ 267   1              ADC0CN2 |= ADCM_save;
+ 268   1              RESTORE_PAGE;
+ 269   1      }
+ 270          
+ 271          ADC0_AutoscanBuffer_t * ADC0_getNextAutoscanBuffer(void)
+ 272          {
+ 273   1        const ADC0_AutoscanBuffer_t * buffer;
+ 274   1        DECL_PAGE;
+ 275   1        SET_PAGE(ADC0_SFRPAGE);
+ 276   1      
+ 277   1        buffer = (ADC0_AutoscanBuffer_t *)(((ADC0ASAH & ADC0ASAH_STADDRH__FMASK) << 8) | (ADC0ASAL & ADC0ASAL_ST
+             -ADDRL__FMASK));
+ 278   1      
+ 279   1        RESTORE_PAGE;
+ 280   1        return buffer;
+ 281   1      }
+ 282          
+ 283          void ADC0_setNextAutoscanBuffer(const ADC0_AutoscanBuffer_t * buffer,
+ 284                                uint8_t numElements)
+ 285          {
+ 286   1              uint16_t addr = buffer;
+ 287   1              DECL_PAGE;
+ 288   1              SET_PAGE(ADC0_SFRPAGE);
+ 289   1      
+ 290   1              // Buffer must be aligned to an even(Å¼Êý) address
+ 291   1              SLAB_ASSERT(!(addr & 0x01));
+ 292   1      
+ 293   1              // Set the autoscan address
+ 294   1              ADC0ASAH = (ADC0ASAH & ~ADC0ASAH_STADDRH__FMASK) | ((addr >> 8) & ADC0ASAH_STADDRH__FMASK);
+ 295   1              ADC0ASAL = (ADC0ASAL & ~ADC0ASAL_STADDRL__FMASK) | (addr & ADC0ASAL_STADDRL__FMASK);
+ 296   1      
+ 297   1              // Buffer size must be 1-64
+ 298   1              SLAB_ASSERT(numElements <= 64 && numElements >= 1);
+C51 COMPILER V9.53.0.0   ADC_0                                                             07/23/2019 16:46:59 PAGE 6   
+
+ 299   1      
+ 300   1              // Actual count setting is count + 1, subtract one from numElements
+ 301   1              numElements -= 1;
+ 302   1      
+ 303   1              // Set autoscan count
+ 304   1              ADC0ASCT = (ADC0ASCT & ~ADC0ASCT_ASCNT__FMASK) | numElements;
+ 305   1      
+ 306   1              RESTORE_PAGE;
+ 307   1      }
+ 308          
+ 309          void ADC0_disableAutoscan(void)
+ 310          {
+ 311   1              DECL_PAGE;
+ 312   1              SET_PAGE(ADC0_SFRPAGE);
+ 313   1      
+ 314   1              ADC0ASCF &= ~ADC0ASCF_ASEN__BMASK;
+ 315   1      
+ 316   1              RESTORE_PAGE;
+ 317   1      }
+ 318          #endif //EFM8PDL_ADC0_USE_AUTOSCAN
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  1 ERROR(S)

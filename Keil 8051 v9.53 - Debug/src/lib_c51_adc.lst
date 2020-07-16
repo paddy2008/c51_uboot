@@ -1,0 +1,207 @@
+C51 COMPILER V9.53.0.0   LIB_C51_ADC                                                       07/24/2019 17:21:52 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE LIB_C51_ADC
+OBJECT MODULE PLACED IN .\src\lib_c51_adc.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\src\lib_c51_adc.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOATFUZZY(3
+                    -) OPTIMIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(C:/SiliconLabs/SimplicityStudio/v3/developer/sdk
+                    -s/si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc;C:
+                    -/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/developer/
+                    -sdks/si8051/v3//Lib/efm8lb1;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1) PRINT(.\src\lib
+                    -_c51_adc.lst) COND PAGEWIDTH(120) PAGELENGTH(65) OBJECT(.\src\lib_c51_adc.OBJ)
+
+line level    source
+
+   1          #include "lib_c51_adc.h"
+   2          
+   3          //ADC0_NEW_AUTOSCAN_BUFFER_ARRAY(scan_buf,NUM_SCANS,BUFFER_SCAN_TMP_ADDR);
+   4          
+   5          ADC_LIST_T  adc_list;
+   6          
+   7          // Calibration value for the temperature sensor at 0 degrees C, stored in CODE space
+   8          SI_LOCATED_VARIABLE_NO_INIT(TEMPSENSOR_0C_LOW,  uint8_t const, SI_SEG_CODE, TEMP_CAL_ADDRESS_LOW);
+   9          SI_LOCATED_VARIABLE_NO_INIT(TEMPSENSOR_0C_HIGH, uint8_t const, SI_SEG_CODE, TEMP_CAL_ADDRESS_HIGH);
+  10          
+  11          static void _adc0_dev_init(void)
+  12          {
+  13   1              //PAC_DISABLED
+  14   1              //ADC0 conversion initiated on write of 1 to ADBUSY.
+  15   1              ADC0CN2 = ADC0CN2_ADCM__ADBUSY | ADC0CN2_PACEN__PAC_DISABLED;
+  16   1      
+  17   1              ADC0CN1 = ADC0CN1_ADBITS__14_BIT | ADC0CN1_ADSJST__RIGHT_NO_SHIFT | ADC0CN1_ADRPT__ACC_1;
+  18   1      
+  19   1              ADC0CF2 = ADC0CF2_GNDSL__GND_PIN | ADC0CF2_REFSL__INTERNAL_VREF | (0x04 << ADC0CF2_ADPWR__SHIFT);
+  20   1      
+  21   1      
+  22   1               ADC0CF0 = ADC0CF0_ADCLKSEL__SYSCLK | (0x05 << ADC0CF0_ADSC__SHIFT);
+  23   1      
+  24   1              ADC0CF1 = ADC0CF1_ADLPM__LP_ENABLED | (0x3D << ADC0CF1_ADTK__SHIFT);
+  25   1      
+  26   1      
+  27   1              SFRPAGE = 0x30;
+  28   1              ADC0ASCF |= ADC0ASCF_STEN__SINGLE_TRIGGER;
+  29   1      
+  30   1              SFRPAGE = 0x00;
+  31   1              ADC0CN0 &= ~ADC0CN0_ADGN__FMASK;
+  32   1              ADC0CN0 |= ADC0CN0_ADEN__ENABLED | ADC0CN0_ADGN__GAIN_0P5 | ADC0CN0_IPOEN__POWER_DOWN | ADC0CN0_TEMPE__TE
+             -MP_ENABLED;
+  33   1      
+  34   1              //EIE1 |= 0x08;  //ADC0 Conversion Complete Interrupt Disable
+  35   1      }
+  36          
+  37          
+  38          static void _adc0_struct_init(void)
+  39          {
+  40   1              uint8_t i = 0;
+  41   1      
+  42   1              for(i = 0; i < ADC_NUM; i++)
+  43   1              {
+  44   2                      adc_list.adc[i] = NULL;
+  45   2              }
+  46   1      
+  47   1              adc_list.num = 0;
+  48   1      }
+  49          
+C51 COMPILER V9.53.0.0   LIB_C51_ADC                                                       07/24/2019 17:21:52 PAGE 2   
+
+  50          void adc0_init(void)
+  51          {
+  52   1              ADC_STRUCT_T mcu_temp;
+  53   1              ADC_STRUCT_T vcc;
+  54   1              ADC_STRUCT_T mpd[4];
+  55   1      
+  56   1              _adc0_dev_init();
+  57   1              _adc0_struct_init();
+  58   1      
+  59   1              adc0_add(&mcu_temp, ADC0_MCU_TEMP);
+  60   1              adc0_add(&vcc, ADC0_VCC);
+  61   1              adc0_add(&mpd[0], ADC0_MPD0);
+  62   1              adc0_add(&mpd[1], ADC0_MPD1);
+  63   1              adc0_add(&mpd[2], ADC0_MPD2);
+  64   1              adc0_add(&mpd[3], ADC0_MPD3);
+  65   1      }
+  66          
+  67          void adc0_add(ADC_STRUCT_T *adc,ADC0_PositiveInput_t input_pin)
+  68          {
+  69   1              if((adc != NULL) && (adc_list.num < ADC_NUM))
+  70   1              {
+  71   2                      adc_list.adc[adc_list.num] = adc;
+  72   2              }
+  73   1              else
+  74   1              {
+  75   2                      return;
+  76   2              }
+  77   1      
+  78   1              adc_list.adc[adc_list.num]->autoscan = 1;
+  79   1              adc_list.adc[adc_list.num]->enable       = 1;        //add new adc poll default state is enable
+  80   1              adc_list.adc[adc_list.num]->pin      = input_pin;
+  81   1              adc_list.num ++;
+  82   1      }
+  83          
+  84          /* return voltage in 0.1mV */
+  85          static uint16_t _adc0_normalization(const uint16_t * buffer, uint8_t size)
+  86          {
+  87   1              uint32_t i, sum = 0;
+  88   1              
+  89   1              for (i = 0; i < size; i++)
+  90   1                sum += (buffer[i] & ADC_MAX_RESULT);
+  91   1      
+  92   1              return (uint16_t)(((float)sum / (float)size * ADC_VREF_MV * 2) / ADC_MAX_RESULT);
+  93   1      }
+  94          
+  95          static uint16_t _adc0_do_measure(ADC0_PositiveInput_t input_pin)
+  96          {
+  97   1              //ADC0_setAutoscanInputs(input_pin, 1);
+  98   1              //ADC0_enableAutoscan((ADC0_AutoscanBuffer_t *)scan_buf, NUM_SCANS, ADC0_AUTOSCAN_MODE_SINGLE);
+  99   1              //ADC0_startConversion();
+ 100   1              //while(!ADC0_isConversionComplete());  // Wait for scan to complete
+ 101   1              //ADC0_clearIntFlags(ADC0_CONVERSION_COMPLETE_IF);
+ 102   1              input_pin = 0;  //only in order to complier passed
+ 103   1              return _adc0_normalization(&adc_list.scan_buf[0], NUM_SCANS);
+ 104   1      }
+ 105          
+ 106          void adc0_run(void)
+ 107          {
+ 108   1              uint8_t i = 0;
+ 109   1      
+ 110   1              for(i = 0; (adc_list.adc[i] != NULL) && (i < adc_list.num); i++)
+ 111   1              {
+ 112   2                      if (adc_list.adc[i]->autoscan && adc_list.adc[i]->enable)
+C51 COMPILER V9.53.0.0   LIB_C51_ADC                                                       07/24/2019 17:21:52 PAGE 3   
+
+ 113   2                      {
+ 114   3                              adc_list.adc[i]->val = _adc0_do_measure(adc_list.adc[i]->pin);
+ 115   3                      }
+ 116   2              }
+ 117   1      }
+ 118          
+ 119          uint16_t adc0_get_value(uint8_t input_pin)
+ 120          {
+ 121   1              uint8_t i = 0;
+ 122   1      
+ 123   1              for(i = 0; (adc_list.adc[i] != NULL) && (i < adc_list.num); i++)
+ 124   1              {
+ 125   2                      if(input_pin == adc_list.adc[i]->pin)
+ 126   2                      {
+ 127   3                              return adc_list.adc[i]->val;
+ 128   3                      }
+ 129   2              }
+ 130   1              return 0;
+ 131   1      }
+ 132          
+ 133          /* return in 1/256 C */
+ 134          int16_t adc0_get_mcu_temp()
+ 135          {
+ 136   1              uint16_t tempsensor_0c = 0;   // Stores the temp sensor cal value at 0C as [high byte][low byte]
+ 137   1              float code_temp = 0;
+ 138   1              tempsensor_0c = (TEMPSENSOR_0C_HIGH << 8) | TEMPSENSOR_0C_LOW;
+ 139   1              code_temp=(float)adc0_get_value(ADC0_MCU_TEMP) * ADC_MAX_RESULT/ADC_VREF_MV/2;
+ 140   1              return (int16_t)((code_temp* 2.0 - (float)tempsensor_0c) / (float)28 * TEMP_SCALE);
+ 141   1      }
+ 142          
+ 143          uint16_t adc0_manual_poll(uint8_t input_pin)
+ 144          {
+ 145   1              return _adc0_do_measure(input_pin);
+ 146   1      }
+ 147          
+ 148          static void _adc0_clearIntFlags(uint8_t flags)
+ 149          {
+ 150   1        uint8_t savedPage = SFRPAGE;
+ 151   1      
+ 152   1         SFRPAGE = 0x30;
+ 153   1      
+ 154   1         flags = 0;  //only in order to complier passed
+ 155   1        // Must pass one of the valid flags
+ 156   1        // SLAB_ASSERT(flags & (ADC0_CONVERSION_COMPLETE_IF | ADC0_WINDOW_COMPARE_IF));
+ 157   1      
+ 158   1        // ADC0CN0 &= ~(flags & (ADC0_CONVERSION_COMPLETE_IF | ADC0_WINDOW_COMPARE_IF));
+ 159   1      
+ 160   1        SFRPAGE = savedPage;
+ 161   1      }
+ 162          
+ 163          SI_INTERRUPT (ADC0EOC_ISR, ADC0EOC_IRQn)
+ 164          {
+ 165   1              _adc0_clearIntFlags(ADC0_CONVERSION_COMPLETE_IF);
+ 166   1      }
+ 167          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1061    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     47      52
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+C51 COMPILER V9.53.0.0   LIB_C51_ADC                                                       07/24/2019 17:21:52 PAGE 4   
+
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

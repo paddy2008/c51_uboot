@@ -1,0 +1,499 @@
+C51 COMPILER V9.53.0.0   EFM8LB12_CLI                                                      07/05/2019 13:46:58 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE EFM8LB12_CLI
+OBJECT MODULE PLACED IN .\src\Efm8lb12_cli.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\emptyProject\src\Efm8lb12_cli.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOATFUZ
+                    -ZY(3) OPTIMIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(C:/SiliconLabs/SimplicityStudio/v3/developer
+                    -/sdks/si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:
+                    -/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc) PRINT(.\src\Efm8lb12_cli.lst) COND PAGEWI
+                    -DTH(120) PAGELENGTH(65) OBJECT(.\src\Efm8lb12_cli.OBJ)
+
+line level    source
+
+   1          #include <string.h>
+   2          #include <stdio.h>
+   3          #include <stdlib.h>
+   4          #include <stdarg.h>  //for va_list ap
+   5          #include "Efm8lb12_cli.h"
+   6          #include "Efm8lb12_timer.h"
+   7          #include "lib_c51_uart.h"
+   8          
+   9          extern volatile SOFT_TIMER_T soft_timer;
+  10          
+  11          static bit label = false;
+  12          
+  13          GET_CMD_PARAM_INFO_T gCmdParamInfo;
+  14          
+  15          struct
+  16          {
+  17                  CLI_Command_List_t command[100];
+  18                  CLI_Command_List_t parameter[100];
+  19          }clilist;
+  20          
+  21          static void vOutputString(char *str)
+  22          {
+  23   1              printf("%s",str);
+  24   1      }
+  25          static void vOutputChar(char ch)
+  26          {
+  27   1              printf("%c",ch);
+  28   1      }
+  29          
+  30          static void cli_deinit()
+  31          {
+  32   1              gCmdParamInfo.cmdBufTail   = gCmdParamInfo.cmdBuf;
+  33   1              gCmdParamInfo.cmdBufCursor = gCmdParamInfo.cmdBuf;
+  34   1              gCmdParamInfo.cmdBuf[0] ='\0';
+  35   1              memset(gCmdParamInfo.argv[2], 0, CMD_MAX_PARAMETER_NUM);
+  36   1      }
+  37          
+  38          static char *CLIGetParameter(char *str,uint8_t num)  //失败返回NULL
+  39          {
+  40   1              char *dst = str;
+  41   1              uint8_t i = 0;
+  42   1              while(*dst == ' ') dst++;
+  43   1              if(num == 0 && *dst)
+  44   1              {
+  45   2                      return dst;
+  46   2              }
+  47   1              while(*dst)
+  48   1              {
+  49   2                      if(*dst == '[')
+  50   2                      {
+  51   3                              dst = strchr(dst, ']') + 1;
+C51 COMPILER V9.53.0.0   EFM8LB12_CLI                                                      07/05/2019 13:46:58 PAGE 2   
+
+  52   3                              if(dst == NULL)
+  53   3                              {
+  54   4                                      vOutputString("\r\n Instruction standard error, please contact software processing!");
+  55   4                                      return NULL;
+  56   4                              }
+  57   3                      }
+  58   2                      else if(*dst++ == ' ')
+  59   2                      {
+  60   3                              while(*dst == ' ') dst++;
+  61   3                              i++;
+  62   3                              if(i == num && *dst)
+  63   3                              {
+  64   4                                      return dst;
+  65   4                              }
+  66   3                      }
+  67   2              }
+  68   1              return NULL;
+  69   1      }
+  70          
+  71          static void cli_format_cmd()
+  72          {
+  73   1              char *strtop = gCmdParamInfo.cmdBuf,*strend ;
+  74   1      
+  75   1              gCmdParamInfo.argc = 0;
+  76   1              do
+  77   1              {
+  78   2                      strend = strchr(strtop,' ');
+  79   2                      if(strend == NULL)
+  80   2                      {
+  81   3                              gCmdParamInfo.argv[gCmdParamInfo.argc][strlen(strtop)] = '\0';
+  82   3                              strcpy(&gCmdParamInfo.argv[gCmdParamInfo.argc++],strtop);
+  83   3                      }
+  84   2                      else
+  85   2                      {
+  86   3                              gCmdParamInfo.argv[gCmdParamInfo.argc][strend - strtop] = '\0';
+  87   3                              strncpy(&gCmdParamInfo.argv[gCmdParamInfo.argc++],strtop,strend - strtop);
+  88   3                              strtop = strend + 1;
+  89   3                      }
+  90   2              }
+  91   1              while(strend);
+  92   1              gCmdParamInfo.argv[gCmdParamInfo.argc][0] = '\0';
+  93   1      }
+  94          
+  95          static void cli_write_history_cmd(char *str)
+  96          {
+  97   1              static uint8_t i = 0;
+  98   1      
+  99   1              if(strcmp(gCmdParamInfo.historyCmd.cmdBuf[i], str))
+ 100   1              {
+ 101   2                      if(gCmdParamInfo.historyCmd.cmdBuf[i][0] != 0)
+ 102   2                      {
+ 103   3                              if(++i >= HISTORY_CMD_NUM)
+ 104   3                              {
+ 105   4                                      i = 0;
+ 106   4                              }
+ 107   3                      }
+ 108   2                      strcpy(gCmdParamInfo.historyCmd.cmdBuf[i],str);
+ 109   2              }
+ 110   1              gCmdParamInfo.historyCmd.wIndex = i;
+ 111   1      }
+ 112          
+ 113          static void cli_read_history_cmd(uint8_t way)
+ 114          {
+C51 COMPILER V9.53.0.0   EFM8LB12_CLI                                                      07/05/2019 13:46:58 PAGE 3   
+
+ 115   1              int i;
+ 116   1      
+ 117   1              way = 0;
+ 118   1      
+ 119   1              while(gCmdParamInfo.historyCmd.cmdBuf[gCmdParamInfo.historyCmd.wIndex][0] == 0 && gCmdParamInfo.historyCm
+             -d.wIndex != 0)
+ 120   1              {
+ 121   2                      --gCmdParamInfo.historyCmd.wIndex;
+ 122   2              }
+ 123   1      
+ 124   1              if(gCmdParamInfo.historyCmd.cmdBuf[gCmdParamInfo.historyCmd.wIndex][0] != 0)
+ 125   1              {
+ 126   2                      for(i = strlen(gCmdParamInfo.cmdBufCursor); i > 0; i--)
+ 127   2                      {
+ 128   3                              vOutputChar(' ');
+ 129   3                      }
+ 130   2      
+ 131   2                      for(i = strlen(gCmdParamInfo.cmdBuf); i > 0; i--)
+ 132   2                      {
+ 133   3                              vOutputString("\b \b");
+ 134   3                      }
+ 135   2      
+ 136   2                      strcpy(gCmdParamInfo.cmdBuf, &gCmdParamInfo.historyCmd.cmdBuf[gCmdParamInfo.historyCmd.wIndex][0]);
+ 137   2                      gCmdParamInfo.cmdBufCursor = gCmdParamInfo.cmdBuf + strlen(&gCmdParamInfo.historyCmd.cmdBuf[gCmdParamInf
+             -o.historyCmd.wIndex][0]);
+ 138   2                      gCmdParamInfo.cmdBufTail   = gCmdParamInfo.cmdBufCursor;
+ 139   2                      vOutputString(gCmdParamInfo.cmdBuf);
+ 140   2      
+ 141   2                      if(gCmdParamInfo.historyCmd.wIndex -- == 0)
+ 142   2                      {
+ 143   3                              gCmdParamInfo.historyCmd.wIndex = HISTORY_CMD_NUM - 1;
+ 144   3                      }
+ 145   2              }
+ 146   1      }
+ 147          static void cli_cInput(char ReadChar)
+ 148          {
+ 149   1              if(ReadChar == ' ' && (*gCmdParamInfo.cmdBufCursor == ' '|| \
+ 150   1                                                              (gCmdParamInfo.cmdBufCursor == gCmdParamInfo.cmdBuf) || \
+ 151   1                                                              (*(gCmdParamInfo.cmdBufCursor - 1) == ' ')))
+ 152   1              {
+ 153   2                      return;
+ 154   2              }
+ 155   1              else
+ 156   1              {
+ 157   2                      char str[CMD_MAX_LENG];
+ 158   2                      uint16_t i;
+ 159   2                      strcpy(str, gCmdParamInfo.cmdBufCursor);
+ 160   2                      memcpy((gCmdParamInfo.cmdBufCursor + 1),str,strlen(str) + 1);
+ 161   2                      *gCmdParamInfo.cmdBufCursor = ReadChar;
+ 162   2                      vOutputChar(ReadChar);
+ 163   2                      vOutputString(str);
+ 164   2                      for(i = strlen(str) ; i > 0 ; i-- )
+ 165   2                      {
+ 166   3                              vOutputChar('\b');
+ 167   3                      }
+ 168   2                      gCmdParamInfo.cmdBufCursor ++;
+ 169   2                      gCmdParamInfo.cmdBufTail ++;
+ 170   2              }
+ 171   1      }
+ 172          static void cli_backspace(void)
+ 173          {
+ 174   1              char str[CMD_MAX_LENG];
+ 175   1              uint16_t i;
+C51 COMPILER V9.53.0.0   EFM8LB12_CLI                                                      07/05/2019 13:46:58 PAGE 4   
+
+ 176   1      
+ 177   1              if(gCmdParamInfo.cmdBufCursor != gCmdParamInfo.cmdBuf)
+ 178   1              {
+ 179   2                      do
+ 180   2                      {
+ 181   3                              if(gCmdParamInfo.cmdBufCursor == gCmdParamInfo.cmdBuf)
+ 182   3                              {
+ 183   4                                      vOutputString(" ");
+ 184   4                                      gCmdParamInfo.cmdBufCursor ++;
+ 185   4                              }
+ 186   3                              strcpy(str, gCmdParamInfo.cmdBufCursor);
+ 187   3                              gCmdParamInfo.cmdBufCursor --;
+ 188   3                              gCmdParamInfo.cmdBufTail --;
+ 189   3                              memcpy((gCmdParamInfo.cmdBufCursor),str,strlen(str)+1);
+ 190   3      
+ 191   3                              vOutputString("\b \b");
+ 192   3                              vOutputString(str);
+ 193   3                              vOutputString(" \b");
+ 194   3      
+ 195   3                              for(i = strlen(str); i > 0; i--)
+ 196   3                              {
+ 197   4                                      vOutputChar('\b');
+ 198   4                              }
+ 199   3                      }
+ 200   2                      while((gCmdParamInfo.cmdBufCursor == gCmdParamInfo.cmdBuf)&&(*gCmdParamInfo.cmdBufCursor == ' '));
+ 201   2              }
+ 202   1      }
+ 203          static void cli_direction(char ReadChar)
+ 204          {
+ 205   1              switch(ReadChar)
+ 206   1              {
+ 207   2                      case 'A': //up direction key
+ 208   2                      {
+ 209   3                              cli_read_history_cmd(0);
+ 210   3                              break;
+ 211   3                      }
+ 212   2                      case 'B': //down direction key
+ 213   2                      {
+ 214   3                              cli_read_history_cmd(1);
+ 215   3                              break;
+ 216   3                      }
+ 217   2                      case 'C': //right direciton key
+ 218   2                      {
+ 219   3                              if(*gCmdParamInfo.cmdBufCursor != '\0')
+ 220   3                              {
+ 221   4                                      vOutputChar(0x1b);
+ 222   4                                      vOutputChar(0x5b);
+ 223   4                                      vOutputChar('C');
+ 224   4                                      gCmdParamInfo.cmdBufCursor++;
+ 225   4                              }
+ 226   3                              break;
+ 227   3                      }
+ 228   2                      case 'D': //left direciton key
+ 229   2                      {
+ 230   3                              if(gCmdParamInfo.cmdBufCursor != gCmdParamInfo.cmdBuf)
+ 231   3                              {
+ 232   4                                      vOutputChar(0x1b);
+ 233   4                                      vOutputChar(0x5b);
+ 234   4                                      vOutputChar('D');
+ 235   4                                      gCmdParamInfo.cmdBufCursor--;
+ 236   4                              }
+ 237   3                              break;
+ 238   3                      }
+C51 COMPILER V9.53.0.0   EFM8LB12_CLI                                                      07/05/2019 13:46:58 PAGE 5   
+
+ 239   2                      default :
+ 240   2                              break;
+ 241   2              }
+ 242   1      }
+ 243          
+ 244          /*
+ 245          static CLI_Command_List_t *CLIParameterSeek(char *str)
+ 246          {
+ 247                  CLI_Command_List_t *command = NULL;
+ 248                  uint8_t num = 0;
+ 249                  return command;
+ 250          }
+ 251          */
+ 252          static char  *CLI_Charmatching(char *src,char *dst)
+ 253          {
+ 254   1              char *ptr;
+ 255   1              uint8_t offset = 0;
+ 256   1      
+ 257   1              if(*src == '#')
+ 258   1              {
+ 259   2                      return dst;
+ 260   2              }
+ 261   1      
+ 262   1              if(!dst || !src)
+ 263   1              {
+ 264   2                      return NULL;
+ 265   2              }
+ 266   1      
+ 267   1              if(*src == '&')
+ 268   1              {
+ 269   2                      return dst;
+ 270   2              }
+ 271   1      
+ 272   1              if(*src == '[')
+ 273   1              {
+ 274   2                      do
+ 275   2                      {
+ 276   3                              while(*(++src) == ' ');
+ 277   3                              ptr = dst;
+ 278   3                              while(*src == *ptr)
+ 279   3                              {
+ 280   4                                      src ++;
+ 281   4                                      ptr ++;
+ 282   4                                      if(((*ptr == ' ') || (*ptr == '\0')) && ((*src == ' ') || (*src == '|') || (*src == ']')|| (*src == '\
+             -0')))
+ 283   4                                      {
+ 284   5                                              return (src - (ptr - dst));
+ 285   5                                      }
+ 286   4                              }
+ 287   3                              while((*src != ']')&&(*src != '|'))src++;
+ 288   3                      }while(*src != ']');
+ 289   2                      return NULL;
+ 290   2              }
+ 291   1      
+ 292   1              ptr = strchr(src,' ');
+ 293   1              if(((ptr == NULL) && (!strcmp(src,dst))) || (((ptr != NULL) && (!strncmp(src,dst,ptr - src))) &&
+ 294   1                               ((*(dst + (ptr - src)) == ' ') || (*(dst + (ptr - src)) == '\0'))))
+ 295   1              {
+ 296   2                      return src;
+ 297   2              }
+ 298   1              else
+ 299   1              {
+ 300   2                      return NULL;
+C51 COMPILER V9.53.0.0   EFM8LB12_CLI                                                      07/05/2019 13:46:58 PAGE 6   
+
+ 301   2              }
+ 302   1      
+ 303   1      }
+ 304          static CLI_Command_List_t *CLICommandSeek(char *str)
+ 305          {
+ 306   1              CLI_Command_List_t *command = &clilist.command[0];
+ 307   1              char * src,  * dst ;
+ 308   1              do
+ 309   1              {
+ 310   2                      src = command -> str;
+ 311   2                      dst = str;
+ 312   2                      while((*src == '#') || (CLI_Charmatching(src,dst) != NULL))
+ 313   2                      {
+ 314   3                              if(*src == '#' && (!CLIGetParameter(src,1)))
+ 315   3                              {
+ 316   4                                      return command;
+ 317   4                              }
+ 318   3                              dst = CLIGetParameter(dst,1); //获取用户下一个字符串
+ 319   3                              src = CLIGetParameter(src,1); //获取命令下一个字符串
+ 320   3                              if(!src && !dst)
+ 321   3                              {
+ 322   4                                      return command;
+ 323   4                              }
+ 324   3                      }
+ 325   2              }while((++command)->str);
+ 326   1              return NULL;
+ 327   1      }
+ 328          static void cli_ProcessCommand(char *str)
+ 329          {
+ 330   1              HAL_StatusTypeDef ret = HAL_OK;
+ 331   1              CLI_Command_List_t *command;
+ 332   1      
+ 333   1              cli_write_history_cmd(str);
+ 334   1              cli_format_cmd();
+ 335   1      
+ 336   1              command = CLICommandSeek(str);
+ 337   1              if(command != NULL)
+ 338   1              {
+ 339   2                      ret = command->p();
+ 340   2                      if(HAL_OK != ret)
+ 341   2                      {
+ 342   3                              if(HAL_NO_PERMISSION == ret)
+ 343   3                              {
+ 344   4                                      vOutputString("\r\nPlease write passward '0x8f 0x9e 0xad 0xec' at first");
+ 345   4                              }
+ 346   3      
+ 347   3                              vOutputString("\r\n---ATECMDRESULT--- FAIL");
+ 348   3                      }
+ 349   2                      else
+ 350   2                      {
+ 351   3                              vOutputString("\r\n---ATECMDRESULT--- OK");
+ 352   3                      }
+ 353   2              }
+ 354   1              else
+ 355   1              {
+ 356   2                      vOutputString("\r\nCommand not recognised.  Enter 'help' to view a list of available commands.");
+ 357   2              }
+ 358   1      
+ 359   1      }
+ 360          static HAL_StatusTypeDef prvDispHelpConfig()
+ 361          {
+ 362   1              CLI_Command_List_t *command = &clilist.command[0];
+ 363   1              do
+C51 COMPILER V9.53.0.0   EFM8LB12_CLI                                                      07/05/2019 13:46:58 PAGE 7   
+
+ 364   1              {
+ 365   2                      vOutputString("\r\n        ");
+ 366   2                      vOutputString(command ->str);
+ 367   2              }while((++command) ->str);
+ 368   1              return HAL_OK;
+ 369   1      }
+ 370          void CLI_info_init(void)
+ 371          {
+ 372   1              memset(&gCmdParamInfo,'\0',sizeof(gCmdParamInfo));
+ 373   1              memset(&clilist,'\0',sizeof(clilist));
+ 374   1              gCmdParamInfo.outMessage = "\r\n#McuTestBoard:";
+ 375   1              cli_deinit();
+ 376   1              CLICommandAdd("help",prvDispHelpConfig);
+ 377   1              //cmd_init();
+ 378   1      }
+ 379          
+ 380          void CLIParameterAdd(char *str,Handle p)  //注册可变字符处理函数
+ 381          {
+ 382   1              static uint16_t num = 0;
+ 383   1              clilist.parameter[num].str = str;
+ 384   1              clilist.parameter[num].p   = p;
+ 385   1              num ++;
+ 386   1      }
+ 387          
+ 388          uint16_t  *CLICommandAdd(char *str,Handle p)   //注册命令处理函数
+ 389          {
+ 390   1              static uint16_t num = 0;
+ 391   1              clilist.command[num].str = str;
+ 392   1              clilist.command[num].p   = p;
+ 393   1              num ++;
+ 394   1              return &num;
+ 395   1      }
+ 396          
+ 397          void CLI_event_handle()
+ 398          {
+ 399   1              idata char ReadChar;
+ 400   1      
+ 401   1              while((ReadChar = UART0_read_char(0)) != 0)
+ 402   1              {
+ 403   2                      if(ReadChar == '\n' || ReadChar == '\r')
+ 404   2                      {
+ 405   3                              label = false;
+ 406   3                              Soft_timer_stop(&soft_timer.prbs_code_timer);
+ 407   3                              Soft_timer_stop(&soft_timer.rssi_poll_timer);
+ 408   3                              if((gCmdParamInfo.cmdBuf == gCmdParamInfo.cmdBufTail)||(gCmdParamInfo.cmdBuf[0] == ' ') )
+ 409   3                              {
+ 410   4                                      vOutputString(gCmdParamInfo.outMessage);
+ 411   4                              }
+ 412   3                              else
+ 413   3                              {
+ 414   4                                      if(*(-- gCmdParamInfo.cmdBufTail) == ' ')
+ 415   4                                      {
+ 416   5                                              *gCmdParamInfo.cmdBufTail = '\0';
+ 417   5                                      }
+ 418   4                                      cli_ProcessCommand(gCmdParamInfo.cmdBuf);
+ 419   4                                      cli_deinit();
+ 420   4                                      vOutputString(gCmdParamInfo.outMessage);
+ 421   4                              }
+ 422   3                      }
+ 423   2                      else
+ 424   2                      {
+ 425   3                              if((ReadChar >= '\b') && (ReadChar < ' '))
+ 426   3                              {
+C51 COMPILER V9.53.0.0   EFM8LB12_CLI                                                      07/05/2019 13:46:58 PAGE 8   
+
+ 427   4                                      label = false;
+ 428   4                                      if(ReadChar == '\b')
+ 429   4                                      {
+ 430   5                                              cli_backspace();
+ 431   5                                      }
+ 432   4                                      else if(ReadChar == 0x1b && UART0_read_char(0xffff) == 0x5b)
+ 433   4                                      {
+ 434   5                                              cli_direction(UART0_read_char(0xffff));
+ 435   5                                      }
+ 436   4                              }
+ 437   3                              else if((ReadChar >= ' ') && (ReadChar <= '~' ))
+ 438   3                              {
+ 439   4                                      if(ReadChar == '#' || label == true)
+ 440   4                                      {
+ 441   5                                              label = true;
+ 442   5                                      }
+ 443   4                                      else if((gCmdParamInfo.cmdBufTail - gCmdParamInfo.cmdBuf) < (CMD_MAX_LENG - 1))
+ 444   4                                      {
+ 445   5                                              cli_cInput(ReadChar);
+ 446   5                                      }
+ 447   4                              }
+ 448   3                      }
+ 449   2              }
+ 450   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   3276    ----
+   CONSTANT SIZE    =    298    ----
+   XDATA SIZE       =   2217     268
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----       1
+   BIT SIZE         =      1    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

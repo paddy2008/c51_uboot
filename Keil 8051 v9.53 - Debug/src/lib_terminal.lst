@@ -1,0 +1,776 @@
+C51 COMPILER V9.53.0.0   LIB_TERMINAL                                                      07/25/2019 14:03:15 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE LIB_TERMINAL
+OBJECT MODULE PLACED IN .\src\lib_terminal.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\src\lib_terminal.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOATFUZZY(
+                    -3) OPTIMIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(C:/SiliconLabs/SimplicityStudio/v3/developer/sd
+                    -ks/si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc;C
+                    -:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/developer
+                    -/sdks/si8051/v3//Lib/efm8lb1;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1) PRINT(.\src\li
+                    -b_terminal.lst) COND PAGEWIDTH(120) PAGELENGTH(65) OBJECT(.\src\lib_terminal.OBJ)
+
+line level    source
+
+   1          /*
+   2           * lib_terminalµÄÖ÷Òª¹¦ÄÜ:
+   3           * (1)ÖÕ¶Ë¿â¿ÉÒÔÓ¦ÓÃÓÚ´°¿ÚÍ¨ĞÅ£¬USBÍ¨ĞÅ£¬Íø¿ÚÍ¨ĞÅµÈ
+   4           * (2)Ö÷Òª´¦ÀíÖÕ¶ËÊı¾İ£¬°üÀ¨Êı¾İµÄÏÔÊ¾£¬¹â±êÒÆ¶¯£¬Ôö¼õ×Ö·ûµÈ
+   5           * (3)Ìá¹©×¢²áÃüÁîµÄAPI
+   6           * (4)±£ÁôÀúÊ·ÃüÁî
+   7           * */
+   8          
+   9          #include <stdio.h>    //for vsprintf
+  10          #include <string.h>   //for vsprintf
+  11          #include <stdarg.h>   //for va_list ap
+  12          #include "lib_terminal.h"
+  13          #include "lib_macro.h"
+  14          
+  15          static  TERMINAL_STRUCT_T _terminal_struct;
+  16          
+  17          static void _terminal_del_string(void);
+  18          static void _terminal_run_cmd(char *str);
+  19          static void _terminal_read_history_cmd(void);
+  20          
+  21          static uint8_t _terminal_show_cmd_help(PARAM_INFO_T *param);
+  22          
+  23          void terminal_init(void)
+  24          {
+  25   1              memset((void *)&_terminal_struct, 0, sizeof(TERMINAL_STRUCT_T));
+  26   1              _terminal_struct.lock   = 1;
+  27   1              _terminal_struct.read   = _terminal_struct.buff;
+  28   1              _terminal_struct.write  = _terminal_struct.buff;
+  29   1              _terminal_struct.prompt =  PROMPT;
+  30   1      
+  31   1              terminal_register_cmd("help" ,_terminal_show_cmd_help);
+  32   1      }
+  33          
+  34          static void _terminal_deinit(void)
+  35          {
+  36   1              memset((void *)_terminal_struct.buff, 0, TERMINAL_BUFF_LEN + 1);
+  37   1              _terminal_struct.read   = _terminal_struct.buff;
+  38   1              _terminal_struct.write  = _terminal_struct.buff;
+  39   1              _terminal_struct.cursor = 0;
+  40   1              _terminal_struct.len    = 0;
+  41   1              _terminal_struct.skip   = false;
+  42   1              memset((void *)&_terminal_struct.cli.param, 0, sizeof(PARAM_INFO_T));
+  43   1      }
+  44          
+  45          /*
+  46           * 1.TERMINAL_BUFFµÄ´óĞ¡ÊÇ100 + 1¸ö×Ö·û£¬×îºóÒ»¸ö¿Õ¼äÓÃÓÚ±£´æ×Ö·û´®½áÊø·û'\0'
+  47           * 2.ÎªÁË±ÜÃâÊäÈë×Ö·û³¬¹ı100¸ö×Ö·û£¬º¯ÊıÀïÃæÔö¼ÓÌØÊâ´¦Àí£¬Ö»±£´æÇ°97¸ö¿É»ØÏÔ×Ö·û£¬Ê£ÏÂ3
+  48           * ¸ö×Ö·û±£´æ¿ØÖÆ×Ö·û£¬Èç'\b','\r','\n'ºÍ·½Ïò¼ü£¬ÒòÎª·½Ïò¼üÊÇ×éºÏ¼ü£¬°üº¬3¸ö×Ö·û,ËùÒÔÊµ¼Ê¿É»ØÏÔµÄ×Ö·ûÊÇ97¸
+             -ö
+  49           * ¼´ÊäÈë97¸ö×Ö·ûÒÔºó£¬¿ÉÒÔÒÆ¶¯¹â±ê£¬µ«²»ÄÜ¼ÌĞøÊäÈëĞÂµÄ×Ö·û£¬µ±È»É¾³ıÒ»¸ö×Ö·ûÒÔºó£¬ÓÖ¿ÉÒÔÊäÈëÒ»¸öĞÂµÄ×Ö·û
+C51 COMPILER V9.53.0.0   LIB_TERMINAL                                                      07/25/2019 14:03:15 PAGE 2   
+
+  50           */
+  51          static void _terminal_recv_char(const char recv)
+  52          {
+  53   1              static bool key_flag = false;
+  54   1      
+  55   1              if(_terminal_struct.write < _terminal_struct.buff + TERMINAL_BUFF_LEN - 3)  //Ö»±£´æÇ°97¸ö×Ö·û£¬×îºóÃæ3¸ö
+             -×Ö·ûÖ»ÄÜÊÇ¿ØÖÆ×Ö·ûÈç'\b','\r','\n'ºÍ·½Ïò¼ü£¬ÒòÎª·½Ïò¼üÊÇ×éºÏ¼ü£¬°üº¬3¸ö×Ö·û
+  56   1              {
+  57   2                      if(*_terminal_struct.write == '\0' && _terminal_struct.lock) //if current position is empty, Èç¹ûµ±Ç°ËøÊ
+             -Ç´ò¿ªµÄ£¬½ÓÊÕ¸Ã×Ö·û£¬·ñÔòÖ±½Ó¶ªÆú
+  58   2                      {
+  59   3                              *(_terminal_struct.write) = recv;
+  60   3                              _terminal_struct.write ++;
+  61   3                      }
+  62   2              }
+  63   1              else  //×îºóÃæµÄ3¸ö×Ö·û
+  64   1              {
+  65   2                      if(*_terminal_struct.write == '\0')
+  66   2                      {
+  67   3                              if(((recv == '\b') || (recv == '\r') || (recv == '\n')) && _terminal_struct.lock)
+  68   3                              {
+  69   4                                      *(_terminal_struct.write) = recv;
+  70   4                                      _terminal_struct.write ++;
+  71   4                              }
+  72   3                              else if(recv == 0x1b)
+  73   3                              {
+  74   4                                      key_flag = true;
+  75   4                              }
+  76   3      
+  77   3                              if(key_flag && _terminal_struct.lock)
+  78   3                              {
+  79   4                                      *(_terminal_struct.write) = recv;
+  80   4                                      _terminal_struct.write ++;
+  81   4                              }
+  82   3      
+  83   3                              if(_terminal_struct.write == _terminal_struct.buff + TERMINAL_BUFF_LEN) //Èç¹ûbuffÒÑ¾­Ğ´Âú
+  84   3                              {
+  85   4                                      key_flag = false;
+  86   4                              }
+  87   3                      }
+  88   2              }
+  89   1      }
+  90          
+  91          void terminal_recv_chars(char *buff, uint32_t len)
+  92          {
+  93   1              uint32_t i = 0;
+  94   1      
+  95   1              for(i = 0; i < len; i++)
+  96   1              {
+  97   2                      _terminal_recv_char(buff[i]);
+  98   2              }
+  99   1      }
+ 100          
+ 101          /*
+ 102           * ¶Á×Ö·ûº¯Êı±ØĞëÔö¼ÓÒ»¸öÑÓÊ±²ÎÊı£¬ÒòÎªÏñ·½Ïò¼üÊÇÒ»¸ö×éºÏ¼ü£¬
+ 103           * ÊÇÈı¸ö×Ö·û×éºÏ¶ø³É£¬¶Áµ½µÚÒ»¸ö×Ö·ûÒÔºó£¬ÓĞÊ±ºò²¢²»ÄÜÀïÃæ
+ 104           * ¶ÁÈ¡µÚ¶ş¸ö×Ö·û£¬ÒòÎªmcuÄÚ²¿µÄÆµÂÊÊÇÔ¶Ô¶¸ßÓÚuartµÄÍ¨ĞÅËÙÂÊµÄ
+ 105           */
+ 106          static char _terminal_read_char(uint16_t time)
+ 107          {
+ 108   1              char ch = 0;
+ 109   1      
+ 110   1              if(_terminal_struct.write == _terminal_struct.buff)  //indicate there are no datas
+C51 COMPILER V9.53.0.0   LIB_TERMINAL                                                      07/25/2019 14:03:15 PAGE 3   
+
+ 111   1              {
+ 112   2                      return ch;
+ 113   2              }
+ 114   1      
+ 115   1              while(time-- != 0)
+ 116   1              {
+ 117   2                      if(_terminal_struct.read < _terminal_struct.write) //ÒòÎªÊÇ·ÇÑ­»·buff,ËùÒÔreadÖ¸ÕëÒ»¶¨ÊÇĞ¡ÓÚµÈÓÚwriteÖ¸Õ
+             -ë
+ 118   2                      {
+ 119   3                              if(*_terminal_struct.read != '\0')  //if not equal NUL(¿Õ×Ö·û)
+ 120   3                              {
+ 121   4                                      ch = *_terminal_struct.read;
+ 122   4                                      _terminal_struct.read ++;
+ 123   4                                      return ch;
+ 124   4                              }
+ 125   3                              else
+ 126   3                              {
+ 127   4                                      ch = 0;
+ 128   4                              }
+ 129   3                      }
+ 130   2              }
+ 131   1              return ch;
+ 132   1      }
+ 133          
+ 134          static void _terminal_putchar(const char ch)
+ 135          {
+ 136   1              printf("%c", ch);
+ 137   1      }
+ 138          
+ 139          /*
+ 140           * ÒòÎªÔÚ³õÊ¼»¯µÄ¹ı³ÌÖĞ²¢ÇÒÈ«¾ÖÖĞ¶ÏÎ´´ò¿ªÖ®Ç°£¬ÓĞ¿ÉÄÜĞèÒª´òÓ¡ĞÅÏ¢
+ 141           * ÀıÈç¼ì²âSDAºÍSCLµÄµçÆ½×´Ì¬µÈµÈ£¬ËùÒÔÕâÀïÔÚÊä³öĞÅÏ¢Ö®Ç°£¬ÏÈ½«
+ 142           * È«¾ÖÖĞ¶Ï´ò¿ª
+ 143           */
+ 144          static void _terminal_put_string(const char *str)
+ 145          {
+ 146   1              printf("%s", str);
+ 147   1      }
+ 148          
+ 149          /*
+ 150           * ¸ñÊ½»¯×Ö·û´®µÄÄ¿µÄ:
+ 151           * É¾³ıÄÇĞ©¿ØÖÆ×Ö·û£¬Ö»°üº¬ÃüÁî×éºÏµÄ¿É»ØÏÔ×Ö·û
+ 152           */
+ 153          static void _terminal_format_buff(void)
+ 154          {
+ 155   1              uint8_t i = 0, j = 0;
+ 156   1              uint16_t len = strlen(_terminal_struct.buff);
+ 157   1              char buff[TERMINAL_BUFF_LEN] = {'\0'};
+ 158   1      
+ 159   1              for(i = 0; _terminal_struct.buff[i] != '\0'; i++)
+ 160   1              {
+ 161   2                      if(_terminal_struct.buff[i] == 0x1b && _terminal_struct.buff[i + 1] == 0x5b)  //indicate direction key p
+             -ressed
+ 162   2                      {
+ 163   3                              i += 3; //skip 3 chars
+ 164   3      
+ 165   3                      }
+ 166   2      
+ 167   2                      if(CHECK_CHAR_VALID(_terminal_struct.buff[i]))
+ 168   2                      {
+ 169   3                              buff[j++] = _terminal_struct.buff[i];
+ 170   3                      }
+ 171   2              }
+C51 COMPILER V9.53.0.0   LIB_TERMINAL                                                      07/25/2019 14:03:15 PAGE 4   
+
+ 172   1      
+ 173   1              if(len > 0)
+ 174   1              {
+ 175   2                      COM_LOCK_SEM(_terminal_struct.lock);
+ 176   2                      memcpy(_terminal_struct.buff, buff, TERMINAL_BUFF_LEN);
+ 177   2                      _terminal_struct.write  = _terminal_struct.buff + j;  //update write pointer
+ 178   2                      COM_UNLOCK_SEM(_terminal_struct.lock);
+ 179   2                      _terminal_struct.read   = _terminal_struct.buff + j;  //update read pointer
+ 180   2              }
+ 181   1      }
+ 182          
+ 183          /*
+ 184           *×¢ÒâÒ»Ğ©ÌØÊâ×Ö·ûµÄ´¦Àí£¬ÕâĞ©ÌØÊâ×Ö·û²¢²»ĞèÒª±£´æÆğÀ´
+ 185           */
+ 186          static void _terminal_handle_direction_key(char ch)
+ 187          {
+ 188   1              switch(ch)
+ 189   1              {
+ 190   2                      case 'A': //up direction key, ÊÇ×éºÏ×Ö·û'ESC +¡¾ + A',ASCIIÎª0x1b + 0x5b + 0x41
+ 191   2                      {
+ 192   3                              _terminal_read_history_cmd();
+ 193   3                              break;
+ 194   3                      }
+ 195   2                      case 'B': //down direction key£¬ÊÇ×éºÏ×Ö·û'ESC +¡¾ + B',ASCIIÎª0x1b + 0x5b + 0x42
+ 196   2                      {
+ 197   3                              _terminal_read_history_cmd();
+ 198   3                              break;
+ 199   3                      }
+ 200   2                      case 'C': //right direciton key£¬ÊÇ×éºÏ×Ö·û'ESC +¡¾ + C',ASCIIÎª0x1b + 0x5b + 0x43
+ 201   2                      {
+ 202   3                              _terminal_format_buff();
+ 203   3                              if(_terminal_struct.cursor < _terminal_struct.len)
+ 204   3                              {
+ 205   4                                      _terminal_putchar(0x1b);
+ 206   4                                      _terminal_putchar(0x5b);
+ 207   4                                      _terminal_putchar('C');   //ÕâÈı¾äµÄ×÷ÓÃ¾ÍÊÇ¹â±êÓÒÒÆ
+ 208   4                                      _terminal_struct.cursor ++;
+ 209   4                              }
+ 210   3                              break;
+ 211   3                      }
+ 212   2                      case 'D': //left direciton key£¬ÊÇ×éºÏ×Ö·û'ESC +¡¾ + D',ASCIIÎª0x1b + 0x5b + 0x44
+ 213   2                      {
+ 214   3                              _terminal_format_buff();
+ 215   3                              if(_terminal_struct.cursor > 0)
+ 216   3                              {
+ 217   4                                      _terminal_putchar(0x1b);
+ 218   4                                      _terminal_putchar(0x5b);
+ 219   4                                      _terminal_putchar('D'); //ÕâÈı¾äµÄ×÷ÓÃ¾ÍÊÇ¹â±ê×óÒÆ
+ 220   4                                      _terminal_struct.cursor--;
+ 221   4                              }
+ 222   3                              break;
+ 223   3                      }
+ 224   2                      default :
+ 225   2                              break;
+ 226   2              }
+ 227   1      }
+ 228          
+ 229          static void _terminal_cursor_left_move(uint32_t len)
+ 230          {
+ 231   1              uint32_t i = 0;
+ 232   1      
+ 233   1              for(i = len; i > 0 && (_terminal_struct.cursor > 0); i--)
+ 234   1              {
+C51 COMPILER V9.53.0.0   LIB_TERMINAL                                                      07/25/2019 14:03:15 PAGE 5   
+
+ 235   2                      _terminal_putchar('\b');
+ 236   2                      _terminal_struct.cursor --;
+ 237   2              }
+ 238   1      }
+ 239          
+ 240          /*
+ 241           * ²åÈë×Ö·ûµÄ´¦ÀíÁ÷³Ì:
+ 242           * 1.Ê×ÏÈÅĞ¶ÏÊÇÔÚ×Ö·û´®½áÎ²»¹ÊÇÖĞ¼ä
+ 243           * 2.Èç¹ûÊÇ×Ö·û´®½áÎ²£¬ÄÇÃ´ºÜÈİÒ×£¬Ö±½ÓÊä³ö¾ÍºÃ
+ 244           * 3.Èç¹ûÊÇ×Ö·û´®ÖĞ¼ä£¬´¦ÀíÁ÷³ÌÈçÏÂ£¬¼ÙÉèµ±Ç°×Ö·û´®ÊÇ12345,ÒªÔÚ23Ö±½Ó²åÈë×Ö·ûa£¬ÄÇÃ´¹â±êÔÚ23Ö®¼ä
+ 245           * 4.ÄÇÃ´ÏÔÊ¾±äÎª12a345£¬Êµ¼ÊbuffÖĞµÄÊı¾İÎª12345a£¬ÒòÎªÊäÈëaµÄÊ±ºòÊ×ÏÈ½ÓÊÕ²¢´æ·Åµ½ÁËbuffÖĞ
+ 246           * 5.ÏÈ¿½±´±£Áô¹â±êºóÃæµÄ×Ö·û´®£¬¼´345´æ·Åµ½buff
+ 247           * 6.È»ºó½«ĞÂ²åÈëµÄ×Ö·û²åÈëµ½¹â±êµ±Ç°Î»ÖÃ
+ 248           * 7.ÔÙ½«buff¿½±´µ½¹â±êºóµÄÎ»ÖÃ£¬Íê³É¶ÔÔ­bufµÄ¸üĞÂ£¬½ÓÏÂÀ´¾ÍÊÇÏÔÊ¾µÄ´¦ÀíÁË£¬×¢ÒâÊäÈë×Ö·û»òÕß×Ö·û´®ÒÔºó£¬¹â
+             -±êÎ»ÖÃ¸Ä±äÁËÒª¼°Ê±¸üĞÂ_uart_struct.cursorµÄÖµ
+ 249           */
+ 250          static void _terminal_insert_char(char ch, uint16_t pos)
+ 251          {
+ 252   1              char buff[TERMINAL_BUFF_LEN] = {'\0'};
+ 253   1              char *cur_pos = _terminal_struct.buff + pos;
+ 254   1      
+ 255   1              if(ch == SKIP_CHAR && pos == 0x0)
+ 256   1              {
+ 257   2                      _terminal_struct.skip = true;
+ 258   2              }
+ 259   1      
+ 260   1              if(!CHECK_CHAR_VALID(ch) || _terminal_struct.skip)
+ 261   1              {
+ 262   2                      return;
+ 263   2              }
+ 264   1      
+ 265   1              if(pos < _terminal_struct.len)  //indicate the cursor at middle
+ 266   1              {
+ 267   2                      _terminal_format_buff();
+ 268   2      
+ 269   2                      /*¸üĞÂÔ­buff*/
+ 270   2                      strncpy(buff, cur_pos, _terminal_struct.len - pos);     //±£´æ¹â±êºóÃæµÄ×Ö·û´®
+ 271   2                      *cur_pos = ch;
+ 272   2                      cur_pos ++;                                                                                                                             //¼Ó1µÄÄ¿µÄÊÇÎªÁË¸øĞÂ²åÈë×Ö·ûÔ¤Áô¿Õ¼ä
+ 273   2                      memcpy(cur_pos, buff, strlen(buff) + 1);                        //¸üĞÂÔ­buff£¬¿½±´strlen(buff) + 1¸ö×Ö·ûµÄÄ¿µÄÊÇÎªÁËÔö¼Ó×Ö·
+             -û´®Ä©Î²µÄ'\0'×Ö·û,Ê£Óà³¤¶ÈÎªUART0_BUFF_LEN - pos - 1
+ 274   2      
+ 275   2                      /*ÏÔÊ¾´¦Àí*/
+ 276   2                      _terminal_putchar(ch);
+ 277   2                      _terminal_put_string(buff);
+ 278   2                      _terminal_struct.cursor = strlen(_terminal_struct.buff);    //¸üĞÂ¹â±êÎ»ÖÃ
+ 279   2                      _terminal_cursor_left_move(strlen(buff));                               //»Ö¸´¹â±êµ½ÊäÈë×Ö·ûµÄÎ»ÖÃ
+ 280   2              }
+ 281   1              else  //indicate the cursor at end
+ 282   1              {
+ 283   2                      _terminal_putchar(ch);
+ 284   2                      _terminal_struct.cursor ++;
+ 285   2              }
+ 286   1      
+ 287   1              _terminal_struct.len ++;
+ 288   1      }
+ 289          
+ 290          
+ 291          /*
+ 292           * É¾³ı×Ö·ûµÄ´¦ÀíÁ÷³Ì
+ 293           * Óë²åÈë×Ö·ûµÄ´¦ÀíË¼Â·Ò»Ñù£¬ÏÈÉ¾³ıÖ¸¶¨×Ö·û£¬È»ºó×Ö·û´®Æ´½Ó
+ 294           * 123456789,¼ÙÉèµ±Ç°¹â±êÎ»ÓÚ56Ö®¼ä
+ 295           * 1234 6789,Ö´ĞĞÓï¾ä_terminal_put_string("\b \b");ºóµÄĞ§¹û£¬²¢ÇÒµ±Ç°¹â±êÔÚ4ºóÃæ£¬¶ø²»ÊÇ5ºóÃæ
+C51 COMPILER V9.53.0.0   LIB_TERMINAL                                                      07/25/2019 14:03:15 PAGE 6   
+
+ 296           * 123467899,Ö´ĞĞÓï¾ä_terminal_put_string(str);ºóµÄĞ§¹û,²¢ÇÒµ±Ç°¹â±êÔÚÁ½¸ö9Ö®¼ä
+ 297           * 12346789, Ö´ĞĞÓï¾ä_terminal_put_string(" \b");ºóµÄĞ§¹û,µ±Ç°¹â±êÔÚ9ºóÃæ
+ 298           */
+ 299          static void _terminal_delete_char(uint16_t pos)
+ 300          {
+ 301   1              char  buff[TERMINAL_BUFF_LEN] = {'\0'};
+ 302   1              char  *cur_pos = _terminal_struct.buff + pos;
+ 303   1      
+ 304   1              if(pos > 0)
+ 305   1              {
+ 306   2                      _terminal_format_buff();
+ 307   2                      /*¸üĞÂÔ­buff*/
+ 308   2                      strcpy(buff, cur_pos);          //±£´æ¹â±êºóÃæµÄ×Ö·û´®
+ 309   2                      cur_pos --;                             //¼õ1µÄÄ¿µÄÊÇÎªÁË¸²¸Ç±»É¾³ıµÄÄÇ¸ö×Ö·û
+ 310   2                      COM_LOCK_SEM(_terminal_struct.lock);
+ 311   2                      memcpy(cur_pos, buff, strlen(buff) + 1);        //¸üĞÂÔ­buff£¬¿½±´strlen(buff) + 1¸ö×Ö·ûµÄÄ¿µÄÊÇÎªÁËÔö¼Ó×Ö·û´
+             -®Ä©Î²µÄ'\0'×Ö·û,Ê£Óà³¤¶ÈÎªUART0_BUFF_LEN - pos + 1
+ 312   2                      _terminal_struct.write --;      //ÒòÎªÉ¾³ıÁËÒ»¸ö×Ö·û£¬ËùÒÔwriteÖ¸ÕëĞèÒª¼õ1
+ 313   2                      COM_UNLOCK_SEM(_terminal_struct.lock);
+ 314   2      
+ 315   2                      _terminal_struct.read -- ;  //ÒòÎªÉ¾³ıÁËÒ»¸ö×Ö·û£¬ËùÒÔreadÖ¸ÕëĞèÒª¼õ1
+ 316   2                      _terminal_struct.len = strlen(_terminal_struct.buff);
+ 317   2      
+ 318   2                      /*ÏÔÊ¾´¦Àí*/
+ 319   2                      _terminal_put_string("\b \b");   //´òÓ¡'\b',±íÊ¾¹â±êÇ°ÒÆÒ»¸ö×Ö·û£¬È»ºó´òÓ¡¿Õ¸ñ£¬É¾³ı¹â±êºóµÄ×Ö·û£¬ÔÙ´òÓ¡
+             -'\b', ¹â±êÔÙ´ÎÇ°ÒÆÒ»¸ö×Ö·û£¬×ÛºÏĞ§¹û¾ÍÊÇÉ¾³ı×Ö·ûºó£¬¹â±êÎ»ÖÃ²»±ä
+ 320   2                      _terminal_put_string(buff);      //¹â±êºóÃæµÄ×Ö·ûÍ¬²½Ç°ÒÆ£¬¹â±êÒÑ¾­ÒÆµ½ÁË×Ö·û´®µÄµ¹ÊıµÚ¶şÎ»
+ 321   2                      _terminal_put_string(" \b");      //¹â±êÔÚ×Ö·û´®µÄ×îºóÃæ
+ 322   2                      _terminal_struct.cursor = _terminal_struct.len;
+ 323   2                      _terminal_cursor_left_move(strlen(buff));  //½«¹â±ê»Ö¸´µ½É¾³ı×Ö·ûµÄÎ»ÖÃ
+ 324   2              }
+ 325   1      }
+ 326          
+ 327          static void _terminal_del_string(void)
+ 328          {
+ 329   1              uint16_t i = 0;
+ 330   1      
+ 331   1              _terminal_format_buff();
+ 332   1      
+ 333   1              //½«¹â±êÒÆ¶¯µ½×Ö·û´®µÄ×îºóÃæ
+ 334   1              for(i = 0; _terminal_struct.cursor < _terminal_struct.len; i ++)
+ 335   1              {
+ 336   2                      _terminal_putchar(0x1b);
+ 337   2                      _terminal_putchar(0x5b);
+ 338   2                      _terminal_putchar('C');   //ÕâÈı¾äµÄ×÷ÓÃ¾ÍÊÇ¹â±êÓÒÒÆ
+ 339   2                      _terminal_struct.cursor ++;
+ 340   2              }
+ 341   1      
+ 342   1              for(i = 0; i < _terminal_struct.len; i++)
+ 343   1              {
+ 344   2                      _terminal_put_string("\b \b");   //´òÓ¡'\b',±íÊ¾¹â±êÇ°ÒÆÒ»¸ö×Ö·û£¬È»ºó´òÓ¡¿Õ¸ñ£¬É¾³ı¹â±êºóµÄ×Ö·û£¬ÔÙ´òÓ¡
+             -'\b', ¹â±êÔÙ´ÎÇ°ÒÆÒ»¸ö×Ö·û£¬×ÛºÏĞ§¹û¾ÍÊÇÉ¾³ı×Ö·ûºó£¬¹â±êÎ»ÖÃ²»±ä
+ 345   2              }
+ 346   1      
+ 347   1              _terminal_deinit();
+ 348   1      }
+ 349          
+ 350          /*
+ 351           * UARTµÄ´¦ÀíÁ÷³Ì
+ 352           * 1.UARTÖ»¸ºÔğ½ÓÊÕÊı¾İ£¬²¢½«Êı¾İ±£´æµ½UART_BUFF,ÕâÑù´¦ÀíµÄÓÅÊÆÊÇÈ«Ë«¹¤£¬Ìá¸ß´®¿ÚµÄÏìÓ¦ËÙ¶È£¬Èç¹û½ÓÊÕÒ»¸ö×
+             -Ö·ûÏÔÊ¾Ò»¸ö×Ö·û£¬´¦ÀíËÙ¶È»áÂıºÜ¶à
+ 353           * 2.CMD_BUFFµÄÊı¾İÊÇ´ÓUART_BUFFÖĞ¶ÁÈ¡µÄ£¬ÆäÊµÊÇ¿ÉÒÔ¹²ÓÃµÄ£¬ÎÒÃÇÕâÀï¾Í²ÉÈ¡¹²ÓÃµÄ²ßÂÔ£¬½ÚÔ¼RAM
+ 354           * 3.Èç¹ûÃ¿ÊäÈëÒ»¸ö×Ö·û£¬¾ÍÁ¢¼´´ÓUART_BUFF¶ÁÈ¡µ½CMD_BUFF,ÄÇÃ´É¾³ı×Ö·ûµÄÊ±ºò£¬Á½·İÊı¾İ¶¼ÒªÉ¾³ı£¬ËùÒÔÓ¦¸ÃµÈÊ
+C51 COMPILER V9.53.0.0   LIB_TERMINAL                                                      07/25/2019 14:03:15 PAGE 7   
+
+             -äÈë½áÊøÒÔºó£¬²Å½«Êı¾İ¸üĞÂµ½CMD_BUFF
+ 355           * 4.Ğ´×Ö·ûºÍ¶Á×Ö·û»ù±¾Í¬²½£¬Ä¿µÄ¾ÍÊÇÎªÁË»ØÏÔ
+ 356           * 5.¶¨ÒåÒ»¸ö·ÇÑ­»·UART_BUFF,µ±Ğ´ÂúµÄÊ±ºò£¬½«Ğ´Ö¸ÕëÖØĞÂÖ¸ÏòUART_BUFFµÄÆğÊ¼Î»ÖÃ£¬ÒòÎªÊÇ·ÇÑ­»·buff£¬ËùÒÔread
+             -Ö¸ÕëÓÀÔ¶Ğ¡ÓÚµÈÓÚwriteÖ¸Õë
+ 357           * */
+ 358          void terminal_event_handle(void)
+ 359          {
+ 360   1              char ch = 0;
+ 361   1      
+ 362   1              while((ch = _terminal_read_char(1)) != 0)
+ 363   1              {
+ 364   2                      if(ch == '\n' || ch == '\r') //°´ÏÂ»Ø³µ»òÕß»»ĞĞ·û,±íÊ¾ÊäÈë½áÊø
+ 365   2                      {
+ 366   3                              //action handle in here
+ 367   3                              _terminal_format_buff();
+ 368   3                              _terminal_run_cmd(_terminal_struct.buff);
+ 369   3                              _terminal_deinit();
+ 370   3                              _terminal_put_string(_terminal_struct.prompt);
+ 371   3                      }
+ 372   2                      else if(ch == '\b')
+ 373   2                      {
+ 374   3                              _terminal_delete_char(_terminal_struct.cursor);
+ 375   3                      }
+ 376   2                      else if(ch == 0x1b && _terminal_read_char(0xffff) == 0x5b) //·½Ïò¼üÊÇ×éºÏ×Ö·û'ESC +¡¾ + A',ASCIIÎª0x1b +
+             - 0x5b + 0x41
+ 377   2                      {
+ 378   3                              _terminal_handle_direction_key(_terminal_read_char(0xffff));
+ 379   3                      }
+ 380   2                      else //´¦ÀíÊ£ÓàÆäËûµÄ×Ö·û£¬¼´0x21 ~ 0x7E
+ 381   2                      {
+ 382   3                              _terminal_insert_char(ch, _terminal_struct.cursor);
+ 383   3                      }
+ 384   2              }
+ 385   1      }
+ 386          
+ 387          /***********************************************TERMINAL CLI HANDLE***************************************
+             -***/
+ 388          
+ 389          static void _terminal_format_cmd(char *str)
+ 390          {
+ 391   1              char  *str_sect = NULL, buff[TERMINAL_BUFF_LEN] = {0};
+ 392   1      
+ 393   1              if((str == NULL) || (*str == '\0'))
+ 394   1              {
+ 395   2                      return;
+ 396   2              }
+ 397   1      
+ 398   1              strcpy(buff, str);                      //±ØĞë×¢Òâ£¬strtokº¯Êı»áĞŞ¸ÄÔ­×Ö·û´®£¬ËùÒÔ±ØĞë½«×Ö·û´®¿½±´Ò»·İ£¬µ¥¶À´¦Àí£¬È·±£Ô­×Ö·
+             -û´®²»±»ĞŞ¸Ä
+ 399   1              str_sect = strtok(buff," ");
+ 400   1              while(str_sect)
+ 401   1              {
+ 402   2                      strcpy(_terminal_struct.cli.param.argv[_terminal_struct.cli.param.argc ++], str_sect);
+ 403   2                      str_sect = strtok(NULL," ");
+ 404   2              };
+ 405   1      }
+ 406          
+ 407          /*
+ 408          static bool _terminal_find_history_cmd(uint8_t *str)
+ 409          {
+ 410                  uint8_t i = 0;
+ 411          
+ 412                  if((str == NULL) || (*str == '\0'))
+C51 COMPILER V9.53.0.0   LIB_TERMINAL                                                      07/25/2019 14:03:15 PAGE 8   
+
+ 413                  {
+ 414                          return false;
+ 415                  }
+ 416          
+ 417                  for (i = 0; i < _terminal_struct.cli.history.write; i++)
+ 418                  {
+ 419                          if(!strcmp(_terminal_struct.cli.history.buff[i], str))
+ 420                          {
+ 421                                  return true;
+ 422                          }
+ 423                  }
+ 424          
+ 425                  return false;
+ 426          }
+ 427          */
+ 428          
+ 429          static void _terminal_save_history_cmd(char *str)
+ 430          {
+ 431   1              /*
+ 432   1              if(_terminal_find_history_cmd(str))
+ 433   1              {
+ 434   1                      return;
+ 435   1              }
+ 436   1              else
+ 437   1              */
+ 438   1              {
+ 439   2                      memset(_terminal_struct.cli.history.buff[_terminal_struct.cli.history.write], 0, TERMINAL_BUFF_LEN);
+ 440   2                      strcpy(_terminal_struct.cli.history.buff[_terminal_struct.cli.history.write],str);
+ 441   2                      _terminal_struct.cli.history.write ++;
+ 442   2                      _terminal_struct.cli.history.read = _terminal_struct.cli.history.write;
+ 443   2      
+ 444   2                      if(_terminal_struct.cli.history.write >= CLI_HISTORY_CMD_NUM)
+ 445   2                      {
+ 446   3                              _terminal_struct.cli.history.full = true;
+ 447   3                              _terminal_struct.cli.history.write = 0;
+ 448   3                      }
+ 449   2              }
+ 450   1      }
+ 451          
+ 452          /*
+ 453           * ÒòÎª×¢²áÃüÁîµÄ¸ñÊ½ÊÇ±äÁ¿ÒÔ×Ö·û'&'¿ªÍ·£¬³£Á¿²ÎÊıÒÔ×Ö·û'#'¿ªÍ·,read|write»òÕßset|getÃüÁî×éºÏµ½Ò»¸ö×Ó´®,Õâ
+             -¸ö×Ó´®Ö®¼äÓÃ×Ö·û'|'·Ö¸ô¿ª
+ 454           * ÀıÈç:
+ 455           * [opr|opw] &baseAddr &OffAddr #ParmNum(0~0xff),Êµ¼ÊÊäÈëµÄÃüÁî¿ÉÄÜÊÇopr 0xa0 0x0,opw 0x16 0x2 0x10µÈ
+ 456           * [get|set] rx_los mode #[0|1],Êµ¼ÊÊäÈëµÄÃüÁî¿ÉÄÜÊÇget rx_los mode,set rx_los mode 0
+ 457           *
+ 458           */
+ 459          static uint8_t _terminal_special_char_match(char *str)
+ 460          {
+ 461   1              char *p = str;
+ 462   1      
+ 463   1              if((str == NULL) || (*str == '\0'))
+ 464   1              {
+ 465   2                      return NONE_TYPE;
+ 466   2              }
+ 467   1      
+ 468   1              for(; *p != '\0'; p++)
+ 469   1              {
+ 470   2                      if(*p == '&')
+ 471   2                      {
+ 472   3                              return VARIABLE_STR__TYPE;
+ 473   3                      }
+ 474   2                      else if(*p == '#')
+C51 COMPILER V9.53.0.0   LIB_TERMINAL                                                      07/25/2019 14:03:15 PAGE 9   
+
+ 475   2                      {
+ 476   3                              return PARAM_STR__TYPE;
+ 477   3                      }
+ 478   2                      else if((*p == '[') || (*p == ']') || (*p == '|'))
+ 479   2                      {
+ 480   3                              return MULTI_PARAMS_STR_TYPE;
+ 481   3                      }
+ 482   2              }
+ 483   1      
+ 484   1              return NONE_TYPE;
+ 485   1      }
+ 486          
+ 487          
+ 488          /*
+ 489           * ÊäÈëµÄÃüÁîĞèÒª¸ù¾İ×¢²áµÄÃüÁîĞÅÏ¢Æ¥Åä£¬»ù±¾Ë¼ÏëÈçÏÂ:
+ 490           * 1.ÊäÈëµÄÃüÁî±È½Ï¼ò½à£¬ÒÔÒ»¸ö¿Õ¸ñ×Ö·û½«Ã¿¸ö×Ö·û´®¶Î·Ö¿ª£¬µ±½ÓÊÕÊäÈëµÄ×Ö·û´®ÒÔºó£¬ÏÈ¸ñÊ½»¯£¬½«Æä·Ö¶Î±£´æÔ
+             -Ú_terminal_struct.cli.param.argvÖĞ
+ 491           * 2.±éÀú×¢²áµÄ×Ö·û´®£¬È»ºó¿ªÊ¼"·Ö½â"×¢²áµÄ×Ö·û´®£¬Ò»±ß·Ö½â£¬Ò»±ß±È½Ï£¬ÏÈÒÔ¿Õ¸ñ×Ö·û·Ö½â£¬Èç¹û²»Æ¥Åä£¬ÅĞ¶ÏÊ
+             -Ç·ñÊÇ±íÊ¾ÌØÊâ²ÎÊıµÄ×Ö·û´®£¬Èç¹ûÊÇÒÔ×Ö·û&ºÍ×Ö·û#¿ªÍ·µÄ×Ö·û´®£¬Ö±½ÓÌø¹ı²»Æ¥Åä
+ 492           * 3.Èç¹û²»ÊÇÒÔ×Ö·û&ºÍ×Ö·û#¿ªÍ·µÄ×Ö·û´®£¬ÅĞ¶ÏÊÇ²»ÊÇÃüÁî×éºÏ×Ö·û´®¶Î£¬ÒòÎªÕâÀïÊ¹ÓÃÁË¿âº¯Êıstrstrº¯ÊıÀ´Æ¥Åä£
+             -¬ËùÒÔµ±Á½¸öÃüÁî°üº¬ÏàÍ¬µÄ×Ö·û´®µÄÊ±ºò£¬×Ö·û´®³¤µÄÃüÁî±ØĞëÔÚ×Ö·û´®¶ÎµÄÃüÁîºóÃæ
+ 493           * 4.ÀıÈç[opr|opw] &baseAddr &OffAddr #ParmNum(0~0xff)±ØĞëÔÚ[oprt|opwt] &baseAddr &OffAddr #ParmNum(0~0xff
+             -)Ç°Ãæ×¢²á
+ 494           */
+ 495          static bool _terminal_string_match(const char *src)
+ 496          {
+ 497   1              char  *str_sect = NULL, buff[TERMINAL_BUFF_LEN] = {0};
+ 498   1              uint8_t i = 0;
+ 499   1      
+ 500   1              if((src == NULL) || (*src == '\0'))
+ 501   1              {
+ 502   2                      return false;
+ 503   2              }
+ 504   1      
+ 505   1              strcpy(buff, src);
+ 506   1      
+ 507   1              //_terminal_put_string("-00-");
+ 508   1              //_terminal_put_string(src);
+ 509   1              str_sect = strtok(buff," ");
+ 510   1              //_terminal_put_string("-11-");
+ 511   1              //_terminal_put_string(str_sect);
+ 512   1      
+ 513   1              /*
+ 514   1              for(i = 0; i < _terminal_struct.cli.param.argc; i++)
+ 515   1              {
+ 516   1                      terminal_printf("-aa%bu-", i);
+ 517   1                      _terminal_put_string(_terminal_struct.cli.param.argv[i]);
+ 518   1              }
+ 519   1              */
+ 520   1      
+ 521   1              //_terminal_put_string("-66-");
+ 522   1              while(str_sect)
+ 523   1              {
+ 524   2                      //_terminal_put_string("-77-");
+ 525   2                      if(!strcmp(str_sect, _terminal_struct.cli.param.argv[i]))  //if match success
+ 526   2                      {
+ 527   3                              str_sect = strtok(NULL," ");  //»ñÈ¡ÏÂÒ»¸ö×Ö·û´®¶Î
+ 528   3                              i ++;
+ 529   3                              //_terminal_put_string("-22-");
+ 530   3                              //_terminal_put_string(str_sect);
+ 531   3                      }
+ 532   2                      else
+ 533   2                      {
+C51 COMPILER V9.53.0.0   LIB_TERMINAL                                                      07/25/2019 14:03:15 PAGE 10  
+
+ 534   3                              uint8_t type = _terminal_special_char_match(str_sect);
+ 535   3      
+ 536   3                              //_terminal_put_string("-88-");
+ 537   3                              //terminal_printf("\r\n%type = %bu",type);
+ 538   3      
+ 539   3                              if(type == MULTI_PARAMS_STR_TYPE)
+ 540   3                              {
+ 541   4                                      if(strstr(str_sect,_terminal_struct.cli.param.argv[i]))  //if in multi params string include target st
+             -r , indicate match success
+ 542   4                                      {
+ 543   5                                              str_sect = strtok(NULL," ");
+ 544   5                                              i ++;
+ 545   5                                              //_terminal_put_string("-55-");
+ 546   5                                              //_terminal_put_string(str_sect);
+ 547   5                                      }
+ 548   4                                      else
+ 549   4                                      {
+ 550   5                                              //_terminal_put_string("-99-");
+ 551   5                                              //_terminal_put_string(str_sect);
+ 552   5                                              return false;
+ 553   5                                      }
+ 554   4                              }
+ 555   3                              else if((type == VARIABLE_STR__TYPE) || (type == PARAM_STR__TYPE)) //Èç¹ûÓĞÌØÊâ×Ö·û&»òÕß#±íÊ¾Æ¥Åä³É¹¦
+ 556   3                              {
+ 557   4                                      str_sect = strtok(NULL," ");
+ 558   4                                      i ++;
+ 559   4                                      //_terminal_put_string("-33-");
+ 560   4                                      //_terminal_put_string(str_sect);
+ 561   4                              }
+ 562   3                              else
+ 563   3                              {
+ 564   4                                      //_terminal_put_string("-44-");
+ 565   4                                      //_terminal_put_string(str_sect);
+ 566   4                                      return false;
+ 567   4                              }
+ 568   3                      }
+ 569   2              }
+ 570   1              //_terminal_put_string("-99-");
+ 571   1              //_terminal_put_string(src);
+ 572   1              return true;
+ 573   1      }
+ 574          
+ 575          static REGISTER_CMD_T* _terminal_match_cmd()
+ 576          {
+ 577   1              REGISTER_CMD_T *command = (REGISTER_CMD_T *)&_terminal_struct.cli.cmd.command[0];
+ 578   1              uint8_t i = 0;
+ 579   1      
+ 580   1              for(i = 0; i < _terminal_struct.cli.cmd.num; i++)
+ 581   1              {
+ 582   2                      if(_terminal_string_match(command->name))
+ 583   2                      {
+ 584   3                              return command;
+ 585   3                      }
+ 586   2                      command ++;
+ 587   2              }
+ 588   1      
+ 589   1              return NULL;
+ 590   1      }
+ 591          
+ 592          static void _terminal_run_cmd(char *str)
+ 593          {
+ 594   1              RETURN_VALUE_TYPE ret = RET_OK;
+ 595   1              REGISTER_CMD_T *command = NULL;
+C51 COMPILER V9.53.0.0   LIB_TERMINAL                                                      07/25/2019 14:03:15 PAGE 11  
+
+ 596   1      
+ 597   1              if((str == NULL) || (*str == '\0'))
+ 598   1              {
+ 599   2                      return;
+ 600   2              }
+ 601   1      
+ 602   1      
+ 603   1              _terminal_save_history_cmd(str);
+ 604   1              _terminal_format_cmd(str);
+ 605   1      
+ 606   1              command = _terminal_match_cmd();
+ 607   1      
+ 608   1              if(command != NULL)
+ 609   1              {
+ 610   2                      ret = command->func(&_terminal_struct.cli.param);
+ 611   2                      if(RET_OK != ret)
+ 612   2                      {
+ 613   3                              if(RET_NO_PERMISSION == ret)
+ 614   3                              {
+ 615   4                                      _terminal_put_string("\r\nPlease write passward '0x8f 0x9e 0xad 0xec' at first");
+ 616   4                              }
+ 617   3      
+ 618   3                              _terminal_put_string("\r\n---ATECMDRESULT--- FAIL");
+ 619   3                      }
+ 620   2                      else
+ 621   2                      {
+ 622   3                              _terminal_put_string("\r\n---ATECMDRESULT--- OK");
+ 623   3                      }
+ 624   2              }
+ 625   1              else
+ 626   1              {
+ 627   2                      _terminal_put_string("\r\nCommand not recognised.  Enter 'help' to view a list of available commands.");
+ 628   2              }
+ 629   1      
+ 630   1      }
+ 631          
+ 632          static uint8_t _terminal_show_cmd_help(PARAM_INFO_T *param)
+ 633          {
+ 634   1              REGISTER_CMD_T *command = (REGISTER_CMD_T *)&_terminal_struct.cli.cmd.command[0];
+ 635   1              uint8_t i = 0;
+ 636   1      
+ 637   1              for(i = 0; i < _terminal_struct.cli.cmd.num; i++)
+ 638   1              {
+ 639   2                      _terminal_put_string("\r\n        ");
+ 640   2                      _terminal_put_string(command->name);
+ 641   2                      command ++;
+ 642   2              }
+ 643   1      
+ 644   1              param = NULL;
+ 645   1      
+ 646   1              return RET_OK;
+ 647   1      }
+ 648          
+ 649          void  terminal_register_cmd(const char *name, REG_FUN func)   //×¢²áÃüÁî´¦Àíº¯Êı
+ 650          {
+ 651   1              if((name == NULL) || (func == NULL))
+ 652   1              {
+ 653   2                      return;
+ 654   2              }
+ 655   1      
+ 656   1              if(_terminal_struct.cli.cmd.num < CLI_CMD_NUM)
+ 657   1              {
+ 658   2                      _terminal_struct.cli.cmd.command[_terminal_struct.cli.cmd.num].name   = name;
+C51 COMPILER V9.53.0.0   LIB_TERMINAL                                                      07/25/2019 14:03:15 PAGE 12  
+
+ 659   2                      _terminal_struct.cli.cmd.command[_terminal_struct.cli.cmd.num].func       = func;
+ 660   2                      _terminal_struct.cli.cmd.num ++;
+ 661   2              }
+ 662   1      }
+ 663          
+ 664          static void _terminal_read_history_cmd(void)
+ 665          {
+ 666   1              if(_terminal_struct.cli.history.read > 0)
+ 667   1              {
+ 668   2                      _terminal_del_string();
+ 669   2                      _terminal_struct.cli.history.read --;
+ 670   2                      _terminal_put_string(_terminal_struct.cli.history.buff[_terminal_struct.cli.history.read]);
+ 671   2      
+ 672   2                      COM_LOCK_SEM(_terminal_struct.lock);
+ 673   2                      memcpy(_terminal_struct.buff,_terminal_struct.cli.history.buff[_terminal_struct.cli.history.read],strlen
+             -(_terminal_struct.cli.history.buff[_terminal_struct.cli.history.read]));
+ 674   2                      _terminal_struct.write  = _terminal_struct.buff + strlen(_terminal_struct.buff);  //update write pointer
+ 675   2                      COM_UNLOCK_SEM(_terminal_struct.lock);
+ 676   2      
+ 677   2                      _terminal_struct.read   = _terminal_struct.buff + strlen(_terminal_struct.buff);  //update read pointer
+ 678   2                      _terminal_struct.len    = strlen(_terminal_struct.buff);
+ 679   2                      _terminal_struct.cursor = strlen(_terminal_struct.buff);
+ 680   2      
+ 681   2                      if(_terminal_struct.cli.history.read == 0x0)
+ 682   2                      {
+ 683   3                              if( _terminal_struct.cli.history.full)
+ 684   3                              {
+ 685   4                                      _terminal_struct.cli.history.read = CLI_HISTORY_CMD_NUM;
+ 686   4                              }
+ 687   3                              else
+ 688   3                              {
+ 689   4                                      _terminal_struct.cli.history.read = _terminal_struct.cli.history.write;
+ 690   4                              }
+ 691   3                      }
+ 692   2              }
+ 693   1      }
+ 694          
+ 695          bool terminal_get_lock_status()
+ 696          {
+ 697   1              return _terminal_struct.lock;
+ 698   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   3589    ----
+   CONSTANT SIZE    =    731    ----
+   XDATA SIZE       =   1620     588
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

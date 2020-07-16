@@ -1,0 +1,341 @@
+C51 COMPILER V9.53.0.0   EFM8LB12_TIMER                                                    10/09/2019 13:50:23 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE EFM8LB12_TIMER
+OBJECT MODULE PLACED IN .\src\Efm8lb12_timer.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\src\Efm8lb12_timer.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOATFUZZ
+                    -Y(3) OPTIMIZE(9,SPEED) DEFINE(NDEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(D:/Work Project/SingleChipWorkSpaveNew/C51_U
+                    -BOOT/inc;D:/Work Project/SingleChipWorkSpaveNew/C51_UBOOT/mcu_sal_lib;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/
+                    -si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:/Silic
+                    -onLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc;C:/SiliconLabs/SimplicityStudio/v3/developer/sdk
+                    -s/si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/peripheral_driv
+                    -er/inc) REGFILE(C51_UBOOT.ORC) PRINT(.\src\Efm8lb12_timer.lst) COND PAGEWIDTH(120) PAGELENGTH(65) OBJECT(.\src\Efm8lb12_
+                    -timer.OBJ)
+
+line level    source
+
+   1          #include "mcu_sal.h"
+   2          
+   3          /*
+   4           * Timer0 is used for i2c master clock source
+   5           */
+   6          void timer0_hw_init(uint16_t clock)  //the uint of the clock is khz
+   7          {
+   8   1              uint8_t SFRPAGE_SAVE = SFRPAGE;
+   9   1              uint32_t ClockSpeed = clock;
+  10   1      
+  11   1              SFRPAGE    = 0x0;
+  12   1          clock      = SYSCLK/3/4/(ClockSpeed * 1000);  //ClockSpeed * 1000³Ë·¨ÔËËãµÄ½á¹ûÊÇ±£´æµ½ClockSpeedÕâ¸ö±
+             -äÁ¿µÄ£¬ËùÒÔÕâÀïÐèÒªÏÈ½«clock¸³ÖµÎªClockSpeed
+  13   1      
+  14   1          TMOD     |= 0x02;                                            // Sets to 8 bit mode,it is mode2 ,the TL1 is  responsible for counter,TH1 is 
+             -responsible for Initial value in mode2
+  15   1          CKCON0   |= 0x01;                                            // Use system clock divided by 4,if it is not setted ,default system clock val
+             -ue is divided by 12
+  16   1          TH0       = -clock;                                          //SMB_FREQUENCY smbus µÄÊ±ÖÓÎª200khz,¸ù¾Ý200KhzËã³öÀ´µÄÓ¦¸ÃÊÇ253,ÒòÎªSCLµÄÊ±
+             -ÖÓÆµÂÊÊÇ¶¨Ê±Æ÷Òç³öÂÊµÄ1/3,ËùÒÔ¶¨Ê±Æ÷Òç³öµÄÆµÂÊ±ØÐëÊÇ600khz
+  17   1              TL0       = TH0;                                                 // Reload the initial value into TL1
+  18   1              IE_ET0    = 0x0;                                 // disable Timer 0 interrupt(TF0),this bit is the µÚ1 bit of IE regis
+             -ter,IE page addr is all
+  19   1              TCON_TR0  = 0x1;                                                 // Enable Timer0 ,this bit is the µÚ4 bit of TCON register
+  20   1          SFRPAGE = SFRPAGE_SAVE;
+  21   1      }
+  22          
+  23          /*
+  24           *Timer1 is used for uart0 clock source
+  25           */
+  26          void timer1_hw_init(uint16_t  counter)
+  27          {
+  28   1          uint8_t SFRPAGE_SAVE = SFRPAGE;
+  29   1              SFRPAGE   = 0x0;
+  30   1      
+  31   1              TMOD     &= ~0xf0;
+  32   1              TMOD     |= 0x20;                               // Sets to 8 bit mode,it is mode2 ,the TL1 is  responsible for counter,TH1 is res
+             -ponsible for Initial value in mode2
+  33   1              TL1       = counter;                // Initial Value
+  34   1              TH1       = TL1;                                        // Reload the initial value into TL1
+  35   1              IE_ET1    = 0x0;                    // Disable Timer 1 interrupt(TF1)
+  36   1              TCON     |= 0x40;                           // Enable Timer1
+  37   1              SFRPAGE = SFRPAGE_SAVE;
+  38   1      }
+  39          
+  40          /*
+  41           * Timer2 for use delay and polling
+  42           */
+C51 COMPILER V9.53.0.0   EFM8LB12_TIMER                                                    10/09/2019 13:50:23 PAGE 2   
+
+  43          static void _timer2_hw_init(void)
+  44          {
+  45   1          uint8_t SFRPAGE_SAVE = SFRPAGE;
+  46   1              SFRPAGE   = 0x0;
+  47   1      
+  48   1              TMR2CN0 &= ~0x04;                                       //disable timer2
+  49   1              TMR2CN0 &= ~0x08;                                       //set timer2 into 16 bit modes
+  50   1      
+  51   1              CKCON0 &= ~0x30;                                        //Use system clock divided by 12
+  52   1              TMR2CN0 &= ~0x03;
+  53   1      
+  54   1              TMR2RL = -(SYSCLK/12/1000);         // Reload value to be used in Timer2
+  55   1              TMR2 = TMR2RL;                      // Init the Timer2 register,Every 1 milliseconds£¨1ms >>> 3*(1/180000
+             -00)£© overflow a time
+  56   1      
+  57   1              TMR2CN0 |= 0x04;                    // Enable Timer2 in auto-reload mode
+  58   1              IE_ET2 = 1;                         // Timer2 interrupt enable
+  59   1              SFRPAGE = SFRPAGE_SAVE;
+  60   1      }
+  61          
+  62          static void _timer5_hw_init(void)
+  63          {
+  64   1              uint8_t SFRPAGE_SAVE = SFRPAGE;
+  65   1      
+  66   1              /*1s    counter:72000000/12*/
+  67   1              /*1ms   counter:72000/12*/
+  68   1              /*1us   counter:72/12 = 6*/
+  69   1      
+  70   1              SFRPAGE  = 0x10;
+  71   1      
+  72   1              TMR5CN0_TF5H = 0;       // Clear Timer5 overflow flag
+  73   1      
+  74   1              TMR5CN0 &= ~0x04;       //disable timer5
+  75   1              TMR5CN0 &= ~0x08;               //set timer5 into 16 bit modes
+  76   1      
+  77   1              CKCON1  &= ~0x0C;               //set timer5 clock is system clock
+  78   1              TMR5CN0 &= ~0x03;       //clock divided by 12
+  79   1      
+  80   1              TMR5     = 100;         //set timer5 init value
+  81   1              TMR5RL   = TMR5;        //set timer5 reload value
+  82   1      
+  83   1              TMR5CN0 |= 0x04;          // Enable Timer5
+  84   1              //EIE2  |= 0x08;          // Timer5 interrupt enable
+  85   1      
+  86   1              SFRPAGE = SFRPAGE_SAVE;
+  87   1      }
+  88          
+  89          /*
+  90           * Èç¹ûÒª¾«È·us¼¶±ðµÄÑÓÊ±£¬ÒªÃ´ÑÓÊ±º¯ÊýÖÐÆäËûÖ¸ÁîµÄÊ±¼äÒ²ÊÇÐèÒª¿¼ÂÇ½øÀ´µÄ
+  91           * ¸Ãº¯ÊýµÄ»ã±à´úÂëÈçÏÂ:
+  92           *  _timer5_delay_us:
+  93          *0000a82b:   MOV     R0, #22H           --->2           ==>4
+  94          *0000a82d:   MOV     @R0, 0A7H                  --->2
+  95          *100            idata uint16_t counter = 0;
+  96          *0000a82f:   CLR     A                                  --->1           ==>7
+  97          *0000a830:   INC     R0                                 --->1
+  98          *0000a831:   MOV     @R0, A                             --->2
+  99          *0000a832:   INC     R0                                 --->1
+ 100          *0000a833:   MOV     @R0, A                             --->2
+ 101          *106            if(us == 1)
+ 102          *0000a834:   MOV     A, R7                              --->2        ==> 13
+ 103          *0000a835:   XRL     A, #01H                    --->2
+ 104          *0000a837:   ORL     A, R6                              --->1
+C51 COMPILER V9.53.0.0   EFM8LB12_TIMER                                                    10/09/2019 13:50:23 PAGE 3   
+
+ 105          *0000a838:   JNZ     0A861H                             --->8
+ 106          *108                    delay_38_nop();
+ 107          *0000a83a:   NOP
+ 108          *0000a83b:   NOP
+ 109          *0000a83c:   NOP
+ 110          *0000a83d:   NOP
+ 111          *0000a83e:   NOP
+ 112          *0000a83f:   NOP
+ 113          *0000a840:   NOP
+ 114          *0000a841:   NOP
+ 115          *0000a842:   NOP
+ 116          *0000a843:   NOP
+ 117          *0000a844:   NOP
+ 118          *0000a845:   NOP
+ 119          *0000a846:   NOP
+ 120          *0000a847:   NOP
+ 121          *0000a848:   NOP
+ 122          *0000a849:   NOP
+ 123          *0000a84a:   NOP
+ 124          *0000a84b:   NOP
+ 125          *0000a84c:   NOP
+ 126          *0000a84d:   NOP
+ 127          *0000a84e:   NOP
+ 128          *0000a84f:   NOP
+ 129          *0000a850:   NOP
+ 130          *0000a851:   NOP
+ 131          *0000a852:   NOP
+ 132          *0000a853:   NOP
+ 133          *0000a854:   NOP
+ 134          *0000a855:   NOP
+ 135          *0000a856:   NOP
+ 136          *0000a857:   NOP
+ 137          *0000a858:   NOP
+ 138          *0000a859:   NOP
+ 139          *0000a85a:   NOP
+ 140          *0000a85b:   NOP
+ 141          *0000a85c:   NOP
+ 142          *0000a85d:   NOP
+ 143          *0000a85e:   NOP
+ 144          *0000a85f:   NOP
+ 145          *0000a860:   RET
+ 146          *112            counter = (65535) - us * 6 ;
+ 147          *0000a861:   MOV     R4, #00H                   --->2   ==>33
+ 148          *0000a863:   MOV     R5, #06H                   --->2
+ 149          *0000a865:   LCALL   ?C?IMUL(1A85H)             --->9
+ 150          *0000a868:   CLR     C                                  --->1
+ 151          *0000a869:   MOV     A, #0FFH                   --->2
+ 152          *0000a86b:   SUBB    A, R7                              --->1
+ 153          *0000a86c:   MOV     R7, A                              --->2
+ 154          *0000a86d:   MOV     A, #0FFH                   --->2
+ 155          *0000a86f:   SUBB    A, R6                              --->1
+ 156          *0000a870:   MOV     R6, A                              --->2
+ 157          *0000a871:   MOV     R0, #23H                   --->2
+ 158          *0000a873:   MOV     @R0, A                             --->2
+ 159          *0000a874:   INC     R0                                 --->1
+ 160          *0000a875:   MOV     A, R7                              --->2
+ 161          *0000a876:   MOV     @R0, A                             --->2
+ 162          *114            SFRPAGE  = 0x10;
+ 163          *0000a877:   MOV     0A7H, #10H                 --->2     ==>11
+ 164          *116            IE_ET2 = 0;
+ 165          *0000a87a:   CLR     IE.5                               --->1
+ 166          *118            TMR5     = counter;
+ 167          *0000a87c:   MOV     0D5H, R6                   --->2
+C51 COMPILER V9.53.0.0   EFM8LB12_TIMER                                                    10/09/2019 13:50:23 PAGE 4   
+
+ 168          *0000a87e:   MOV     0D4H, A                    --->2
+ 169          *119            TMR5RL   = TMR5;
+ 170          *0000a880:   MOV     0D3H, 0D5H                 --->2
+ 171          *0000a883:   MOV     0D2H, 0D4H                 --->2
+ 172          *121            while(TMR5CN0_TF5H != 0x1);
+ 173          *0000a886:   JNB     SMBxCN.7, 0A886H   --->9    ==>11
+ 174          *123            TMR5CN0_TF5H = 0;
+ 175          *0000a889:   CLR     SMBxCN.7                   --->1
+ 176          *124            IE_ET2 = 1;
+ 177          *0000a88b:   SETB    IE.5                               --->1
+ 178          *126            SFRPAGE = SFRPAGE_SAVE;
+ 179          *0000a88d:   MOV     R0, #22H                   --->2    ==> 16
+ 180          *0000a88f:   MOV     A, @R0                             --->2
+ 181          *0000a890:   MOV     0A7H, A                    --->2
+ 182          *127       }
+ 183          *0000a892:   RET                                                --->10
+ 184           *  Õû¸öº¯ÊýÖ´ÐÐÍê³ÉÐèÒª95¸öNOPÖÜÆÚ£¬ÒòÎª¶¨Ê±Æ÷¼Ó1ÐèÒª12NOPÖÜÆÚ£¬ËùÒÔÉèÖÃ¶¨Ê±Æ÷µÄ³õÖµÊ±ÐèÒª
+ 185           *  ÔÚÔ­À´µÄ»ù´¡ÉÏÔÙ¼ÓÉÏ95¸öNOPµÄÖÜÆÚ£¬12 * 8 Ô¼µÈÓÚ95¸öNOPÖÜÆÚ
+ 186           *  ÁíÍâ£¬µ±us = 1Ê±£¬counter = (65535 - us * 6) + 8 µÃµ½µÄ½á¹ûÊÇ´óÓÚ65535µÄ£¬
+ 187           *  ËùÒÔµ±us = 1Ê±£¬ÐèÒªÌØ±ð´¦Àí£¬ÒòÎªÖ¸Áî
+ 188           *  idata uint8_t SFRPAGE_SAVE = SFRPAGE;
+ 189           *      idata uint16_t counter = 0; ¹²Õ¼ÓÃ11¸öNOPÊ±¼ä
+ 190           *      if(us == 1)Õ¼ÓÃ13¸öNOPÊ±¼ä£¬RETURNÕ¼ÓÃ10¸öNOPÊ±¼ä£¬ÕâÐ©Ö¸Áî¹²Õ¼ÓÃ34¸öNOPÖÜÆÚ£¬
+ 191           *      1us¹²¼Æ72¸öNOPÖÜÆÚ£¬ËùÒÔ»¹ÐèÒªÖ´ÐÐ38¸öNOPÖ¸Áî
+ 192           */
+ 193          void timer5_hw_delay_us(uint16_t us)
+ 194          {
+ 195   1              idata uint8_t SFRPAGE_SAVE = SFRPAGE;
+ 196   1              idata uint16_t counter = 0;
+ 197   1      
+ 198   1              /*1s    counter:72000000/12*/
+ 199   1              /*1ms   counter:72000/12*/
+ 200   1              /*1us   counter:72/12 = 6*/
+ 201   1      
+ 202   1              if(us == 0)
+ 203   1              {
+ 204   2                      return;
+ 205   2              }
+ 206   1              else if(us == 1)
+ 207   1              {
+ 208   2                      delay_38_nop();
+ 209   2                      return;
+ 210   2              }
+ 211   1      
+ 212   1              counter = (65535 - us * 6) + 12;
+ 213   1      
+ 214   1              SFRPAGE  = 0x10;
+ 215   1      
+ 216   1              IE_ET2 = 0;              // Disable Timer2 interrupt in order to prevent preemptive CPU resources,ensure 
+             -delay is exact
+ 217   1      
+ 218   1              TMR5     = counter;     //set timer5 init value
+ 219   1              TMR5RL   = TMR5;        //set timer5 reload value
+ 220   1      
+ 221   1              TMR5CN0_TF5H = 0;                 // Clear Timer5 overflow flag
+ 222   1              while(TMR5CN0_TF5H != 0x1);   // wait timer5 overflow
+ 223   1      
+ 224   1              IE_ET2 = 1;              // Enable Timer2 interrupt
+ 225   1      
+ 226   1              SFRPAGE = SFRPAGE_SAVE;
+ 227   1      }
+ 228          
+ 229          void timer_hw_wdt_init(uint8_t interval)
+C51 COMPILER V9.53.0.0   EFM8LB12_TIMER                                                    10/09/2019 13:50:23 PAGE 5   
+
+ 230          {
+ 231   1              WDTCN = 0xFF;
+ 232   1              WDTCN &= ~0x80;  //must be logic 0 when setting this interval
+ 233   1              WDTCN = interval;
+ 234   1      }
+ 235          
+ 236          void timer_hw_wdt_disable(void)
+ 237          {
+ 238   1              uint8_t SFRPAGE_SAVE = SFRPAGE;
+ 239   1      
+ 240   1              //disable the watch dog timer
+ 241   1              SFRPAGE = 0x00;
+ 242   1              IE_EA = 0;                                //disable global interrupts prevent the write operation is interrupt
+ 243   1              WDTCN = 0xDE; //First key
+ 244   1              WDTCN = 0xAD; //Second key
+ 245   1              SFRPAGE  = SFRPAGE_SAVE;
+ 246   1      }
+ 247          
+ 248          void timer_hw_init()
+ 249          {
+ 250   1              timer0_hw_init(i2c_master_get_freq());
+ 251   1              _timer2_hw_init();
+ 252   1              _timer5_hw_init();
+ 253   1      }
+ 254          
+ 255          
+ 256          SI_INTERRUPT_USING(TIMER3_ISR, TIMER3_IRQn, 3)
+ 257          {
+ 258   1         SMB0CF  &= ~0x80;                    // Disable SMBus
+ 259   1         SMB0CF  |= 0x80;                     // Re-enable SMBus
+ 260   1         TMR3CN0 &= ~0xC0;                    // Clear Timer3 overflow flag
+ 261   1         SMB0CN0_STA = 0;
+ 262   1      }
+ 263          
+ 264          SI_INTERRUPT (TIMER4_ISR, TIMER4_IRQn)
+ 265          {
+ 266   1              SFRPAGE = PG3_PAGE;
+ 267   1      
+ 268   1              I2C0CN0 &= ~I2C0CN0_I2C0EN__BMASK;                      // Disable I2C module
+ 269   1              I2C0CN0 |= I2C0CN0_I2C0EN__ENABLED;                     // Re-enable I2C module
+ 270   1      
+ 271   1              SFRPAGE = PG2_PAGE;
+ 272   1              TMR4CN0 &= ~0xC0;                                                       // Clear Timer4 interrupt-pending flag
+ 273   1      }
+ 274          
+ 275          SI_INTERRUPT_USING(TIMER2_ISR, TIMER2_IRQn, 2)
+ 276          {
+ 277   1              TMR2CN0_TF2H = 0;  // Clear the interrupt flag
+ 278   1      
+ 279   1              timer_update();
+ 280   1      }
+ 281          
+ 282          
+ 283          
+ 284          
+ 285          
+ 286          
+ 287          
+ 288          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    394    ----
+C51 COMPILER V9.53.0.0   EFM8LB12_TIMER                                                    10/09/2019 13:50:23 PAGE 6   
+
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----       5
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----       3
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

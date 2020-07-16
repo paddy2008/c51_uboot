@@ -1,0 +1,121 @@
+C51 COMPILER V9.53.0.0   MCU_SAL_ADC                                                       10/09/2019 13:50:28 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE MCU_SAL_ADC
+OBJECT MODULE PLACED IN .\mcu_sal_lib\mcu_sal_adc.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\mcu_sal_lib\mcu_sal_adc.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOA
+                    -TFUZZY(3) OPTIMIZE(9,SPEED) DEFINE(NDEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(D:/Work Project/SingleChipWorkSpaveNew/
+                    -C51_UBOOT/inc;D:/Work Project/SingleChipWorkSpaveNew/C51_UBOOT/mcu_sal_lib;C:/SiliconLabs/SimplicityStudio/v3/developer/
+                    -sdks/si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:/
+                    -SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc;C:/SiliconLabs/SimplicityStudio/v3/develope
+                    -r/sdks/si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/peripheral
+                    -_driver/inc) REGFILE(C51_UBOOT.ORC) PRINT(.\mcu_sal_lib\mcu_sal_adc.lst) COND PAGEWIDTH(120) PAGELENGTH(65) OBJECT(.\mcu
+                    -_sal_lib\mcu_sal_adc.OBJ)
+
+line level    source
+
+   1          #include "mcu_sal.h"
+   2          
+   3          #ifdef MCU_ADC_MODULE_ENABLED
+   4          
+   5          static ADC_LIST_T  *_adc_list = NULL;
+   6          
+   7          void adc_list_init(ADC_LIST_T *list)
+   8          {
+   9   1              uint8_t i = 0;
+  10   1      
+  11   1              ASSERT(list);
+  12   1      
+  13   1              _adc_list = list;
+  14   1      
+  15   1              for(i = 0; i < ADC_MAX_NUM; i++)
+  16   1              {
+  17   2                      _adc_list->adc[i] = NULL;
+  18   2              }
+  19   1      
+  20   1              _adc_list->num = 0;
+  21   1      }
+  22          
+  23          void adc_add(ADC_STRUCT_T *adc, uint8_t input_pin)
+  24          {
+  25   1              ASSERT(adc);
+  26   1              ASSERT(_adc_list);
+  27   1      
+  28   1              if(_adc_list->num < ADC_MAX_NUM)
+  29   1              {
+  30   2                      _adc_list->adc[_adc_list->num] = adc;
+  31   2              }
+  32   1              else
+  33   1              {
+  34   2                      lib_log("\r\n adc_add failed");
+  35   2                      return;
+  36   2              }
+  37   1      
+  38   1              _adc_list->adc[_adc_list->num]->autoscan   = 1;
+  39   1              _adc_list->adc[_adc_list->num]->enable     = 1;        //add new adc pin and default state is enable
+  40   1              _adc_list->adc[_adc_list->num]->pin        = input_pin;
+  41   1              _adc_list->num ++;
+  42   1      }
+  43          
+  44          void adc_run(void)
+  45          {
+  46   1              uint8_t i = 0;
+  47   1      
+  48   1              ASSERT(_adc_list);
+C51 COMPILER V9.53.0.0   MCU_SAL_ADC                                                       10/09/2019 13:50:28 PAGE 2   
+
+  49   1      
+  50   1              for(i = 0; (_adc_list->adc[i] != NULL) && (i < _adc_list->num); i++)
+  51   1              {
+  52   2                      if (_adc_list->adc[i]->autoscan && _adc_list->adc[i]->enable)
+  53   2                      {
+  54   3                              _adc_list->adc[i]->val = lib_adc_do_measure(_adc_list->adc[i]->pin);
+  55   3                      }
+  56   2              }
+  57   1      }
+  58          
+  59          uint16_t adc_get_value(uint8_t input_pin)
+  60          {
+  61   1              uint8_t i = 0;
+  62   1      
+  63   1              RE_ASSERT(_adc_list);
+  64   1      
+  65   1              for(i = 0; (_adc_list->adc[i] != NULL) && (i < _adc_list->num); i++)
+  66   1              {
+  67   2                      if(input_pin == _adc_list->adc[i]->pin)
+  68   2                      {
+  69   3                              return _adc_list->adc[i]->val;
+  70   3                      }
+  71   2              }
+  72   1              lib_log("\r\n adc_get_value failed");
+  73   1              return 0;
+  74   1      }
+  75          
+  76          
+  77          uint16_t adc_manual_poll(uint8_t input_pin)
+  78          {
+  79   1              return lib_adc_do_measure(input_pin);
+  80   1      }
+  81          
+  82          #endif
+  83          
+  84          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    530    ----
+   CONSTANT SIZE    =     42    ----
+   XDATA SIZE       =      3       8
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

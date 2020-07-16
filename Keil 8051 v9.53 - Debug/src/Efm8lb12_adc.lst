@@ -1,0 +1,148 @@
+C51 COMPILER V9.53.0.0   EFM8LB12_ADC                                                      10/14/2019 10:20:25 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE EFM8LB12_ADC
+OBJECT MODULE PLACED IN .\src\Efm8lb12_adc.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\src\Efm8lb12_adc.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOATFUZZY(
+                    -3) OPTIMIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(D:/Work Project/SingleChipWorkSpaveNew/C51_UBOO
+                    -T/inc;D:/Work Project/SingleChipWorkSpaveNew/C51_UBOOT/mcu_sal_lib;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8
+                    -051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc;C:/Sili
+                    -conLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/
+                    -si8051/v3//Lib/efm8lb1;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:/SiliconLabs/Simpli
+                    -cityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/peripheral_driver/inc) PRINT(.\src\Efm8lb12_adc.lst) COND PAGEWID
+                    -TH(120) PAGELENGTH(65) OBJECT(.\src\Efm8lb12_adc.OBJ)
+
+line level    source
+
+   1          #include "mcu_sal.h"
+   2          #include "assert.h"
+   3          #include "Efm8lb12_adc.h"
+   4          
+   5          ADC0_NEW_AUTOSCAN_BUFFER_ARRAY(scan_buf,ADC_SAMPLE_NUM,BUFFER_SCAN_TMP_ADDR);
+   6          
+   7          // Calibration value for the temperature sensor at 0 degrees C, stored in CODE space
+   8          SI_LOCATED_VARIABLE_NO_INIT(TEMPSENSOR_0C_LOW,  uint8_t const, SI_SEG_CODE, TEMP_CAL_ADDRESS_LOW);
+   9          SI_LOCATED_VARIABLE_NO_INIT(TEMPSENSOR_0C_HIGH, uint8_t const, SI_SEG_CODE, TEMP_CAL_ADDRESS_HIGH);
+  10          
+  11          
+  12          /* return voltage in 0.1mV */
+  13          static uint16_t adc0_normalization(const uint16_t * buffer, uint8_t size)
+  14          {
+  15   1              uint32_t i, sum = 0;
+  16   1              
+  17   1              for (i = 0; i < size; i++)
+  18   1                sum += (buffer[i] & ADC_MAX_RESULT);
+  19   1      
+  20   1              return (uint16_t)(((float)sum / (float)size * ADC_VREF_MV * 2) / ADC_MAX_RESULT);
+  21   1      }
+  22          
+  23          /*
+  24           * get standard voltage value and return voltage in 0.1mV
+  25           */
+  26          uint16_t adc0_do_measure(ADC0_PositiveInput_t input_pin)
+  27          {
+  28   1              ADC0_setAutoscanInputs(input_pin, 1);
+  29   1              ADC0_enableAutoscan((ADC0_AutoscanBuffer_t *)scan_buf, ADC_SAMPLE_NUM, ADC0_AUTOSCAN_MODE_SINGLE);
+  30   1              ADC0_startConversion();
+  31   1              while(!ADC0_isConversionComplete());  // Wait for scan to complete
+  32   1              ADC0_clearIntFlags(ADC0_CONVERSION_COMPLETE_IF);
+  33   1              return adc0_normalization(&scan_buf[0], ADC_SAMPLE_NUM);
+  34   1      }
+  35          
+  36          void adc0_hw_init(void)
+  37          {
+  38   1              //PAC_DISABLED
+  39   1              //ADC0 conversion initiated on write of 1 to ADBUSY.
+  40   1              ADC0CN2 = ADC0CN2_ADCM__ADBUSY | ADC0CN2_PACEN__PAC_DISABLED;
+  41   1      
+  42   1              //ADC0 operates in 12-bit mode.
+  43   1              //Right justified. No shifting applied.
+  44   1              //Perform and Accumulate 1 conversions.
+  45   1              ADC0CN1 = ADC0CN1_ADBITS__14_BIT | ADC0CN1_ADSJST__RIGHT_NO_SHIFT | ADC0CN1_ADRPT__ACC_1;
+  46   1      
+  47   1      
+  48   1              //The ADC0 voltage reference is the internal voltage reference,
+C51 COMPILER V9.53.0.0   EFM8LB12_ADC                                                      10/14/2019 10:20:25 PAGE 2   
+
+  49   1              //The reference is nominally 2.4 V.if MCU needs to uses the temperature sensor£¬so internal voltage refer
+             -ence must be selected
+  50   1              //because the result of calculating is lower deviation(Îó²î)
+  51   1              //Power Up Delay Time = 1.46us
+  52   1              ADC0CF2 = ADC0CF2_GNDSL__GND_PIN | ADC0CF2_REFSL__INTERNAL_VREF | (0x04 << ADC0CF2_ADPWR__SHIFT);
+  53   1      
+  54   1              //ADC0CF0 = ADC0CF0_ADCLKSEL__SYSCLK | (0x01 << ADC0CF0_ADSC__SHIFT);
+  55   1              //ADC0CF0 = ((ADC0_SYSCLK/ADC0SARCLK)-1)<<3;  // Set SAR clock to 12MHz
+  56   1               ADC0CF0 = ADC0CF0_ADCLKSEL__SYSCLK | (0x05 << ADC0CF0_ADSC__SHIFT);
+  57   1      
+  58   1              //Enable low power mode.
+  59   1              //Conversion Tracking Time = 5us
+  60   1              ADC0CF1 = ADC0CF1_ADLPM__LP_ENABLED | (0x3D << ADC0CF1_ADTK__SHIFT);
+  61   1      
+  62   1              //Autoscan Single Trigger Enable
+  63   1              SFRPAGE = 0x30;
+  64   1              ADC0ASCF |= ADC0ASCF_STEN__SINGLE_TRIGGER;
+  65   1      
+  66   1              //Disable ADC0 (low-power shutdown).
+  67   1              //Power down when ADC is idle (not converting).
+  68   1              //clear Conversion Complete Interrupt Flag
+  69   1              //clear ADC Busy
+  70   1              //clear Window Compare Interrupt Flag
+  71   1              //The on-chip PGA gain is 1.0.
+  72   1              //enable the Temperature Sensor
+  73   1              SFRPAGE = 0x00;
+  74   1              ADC0CN0 &= ~ADC0CN0_ADGN__FMASK;
+  75   1              ADC0CN0 |= ADC0CN0_ADEN__ENABLED | ADC0CN0_ADGN__GAIN_0P5 | ADC0CN0_IPOEN__POWER_DOWN | ADC0CN0_TEMPE__TE
+             -MP_ENABLED;
+  76   1      
+  77   1              //EIE1 |= 0x08;  //ADC0 Conversion Complete Interrupt Disable
+  78   1      }
+  79          
+  80          /* return in 1/256 C */
+  81          int16_t adc0_get_mcu_temp()
+  82          {
+  83   1              uint16_t tempsensor_0c = 0;   // Stores the temp sensor cal value at 0C as [high byte][low byte]
+  84   1              float code_temp = 0;
+  85   1              tempsensor_0c = (TEMPSENSOR_0C_HIGH << 8) | TEMPSENSOR_0C_LOW;
+  86   1              code_temp=(float)adc_get_value((uint8_t)ADC0_MCU_TEMP) * ADC_MAX_RESULT/ADC_VREF_MV/2;
+  87   1              return (int16_t)((code_temp* 2.0 - (float)tempsensor_0c) / (float)28 * TEMP_SCALE);
+  88   1      }
+  89          
+  90          static void _adc0_clearIntFlags_by_isr(uint8_t flags)
+  91          {
+  92   1        uint8_t savedPage = SFRPAGE;
+  93   1      
+  94   1        SFRPAGE = 0x30;
+  95   1        // Must pass one of the valid flags
+  96   1        SLAB_ASSERT(flags & (ADC0_CONVERSION_COMPLETE_IF | ADC0_WINDOW_COMPARE_IF));
+  97   1      
+  98   1        ADC0CN0 &= ~(flags & (ADC0_CONVERSION_COMPLETE_IF | ADC0_WINDOW_COMPARE_IF));
+  99   1      
+ 100   1        SFRPAGE = savedPage;
+ 101   1      }
+ 102          
+ 103          SI_INTERRUPT (ADC0EOC_ISR, ADC0EOC_IRQn)
+ 104          {
+ 105   1              _adc0_clearIntFlags_by_isr(ADC0_CONVERSION_COMPLETE_IF);
+ 106   1      }
+ 107          
+
+
+C51 COMPILER V9.53.0.0   EFM8LB12_ADC                                                      10/14/2019 10:20:25 PAGE 3   
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    623    ----
+   CONSTANT SIZE    =     68    ----
+   XDATA SIZE       =   ----      20
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

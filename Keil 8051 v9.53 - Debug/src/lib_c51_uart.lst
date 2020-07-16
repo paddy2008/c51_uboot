@@ -1,0 +1,877 @@
+C51 COMPILER V9.53.0.0   LIB_C51_UART                                                      07/23/2019 17:10:27 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE LIB_C51_UART
+OBJECT MODULE PLACED IN .\src\lib_c51_uart.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\src\lib_c51_uart.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOATFUZZY(
+                    -3) OPTIMIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(C:/SiliconLabs/SimplicityStudio/v3/developer/sd
+                    -ks/si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc;C
+                    -:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/developer
+                    -/sdks/si8051/v3//Lib/efm8lb1;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1) PRINT(.\src\li
+                    -b_c51_uart.lst) COND PAGEWIDTH(120) PAGELENGTH(65) OBJECT(.\src\lib_c51_uart.OBJ)
+
+line level    source
+
+   1          #include <stdio.h>    //for vsprintf
+   2          #include <string.h>   //for vsprintf
+   3          #include <stdarg.h>   //for va_list ap
+   4          #include "lib_c51_uart.h"
+   5          #include "lib_c51_timer.h"
+   6          #include "lib_c51_macro.h"
+   7          
+   8          static  UART_STRUCT_T _uart_struct;
+   9          
+  10          static void _uart_delete_string(void);
+  11          static void _uart_cli_run(uint8_t *str);
+  12          static void _uart_cli_read_history_cmd(void);
+  13          
+  14          static uint8_t _uart_cli_show_cmd_help(void);
+  15          
+  16          static void _uart_clock_select(void)  //Timer1 is used for uart0 clock source
+  17          {
+  18   1              timer1_init(TH1);                                   // initial Timer1
+  19   1      }
+  20          
+  21          static void _uart_dev_init (void)
+  22          {
+  23   1              uint8_t SFRPAGE_SAVE = SFRPAGE;
+  24   1      
+  25   1              SFRPAGE = 0x0;
+  26   1      
+  27   1              XBR0 |= XBR0_URT0E__ENABLED;            //enable UART0 I/O
+  28   1      
+  29   1              SCON0    |= 0x10;                  //Mode0:8-bit UART with Variable Baud Rate(bit7);
+  30   1                                                                                 //Logic level of stop bit is ignored(bit5);
+  31   1                                                                                 //Receive Enable(bit4);
+  32   1                                                                                 //Clear Transmit Interrupt Flag(bit1);Clear Receive Interrupt Flag(bit0)
+  33   1      
+  34   1              #if (SYSCLK/UART_BAUDRATE/2/256 < 1)
+                      {
+                              TH1 = 256-(SYSCLK/UART_BAUDRATE/2);
+                              CKCON0 &= ~0x0B;                                        // T1M = 1; SCA1:0 = xx
+                              CKCON0 |=  0x08;                                                                //Timer1 use the system clock
+                      }
+                      #elif (SYSCLK/UART_BAUDRATE/2/256 < 4)
+  41   1              {
+  42   2                      TH1 = 256-(SYSCLK/UART_BAUDRATE/2/4);
+  43   2                      CKCON0 &= ~0x0B;                                        // T1M = 0; SCA1:0 = 01
+  44   2                      CKCON0 |=  0x01;                                                                //Timer1 user System clock divided by 4
+  45   2              }
+  46   1              #elif (SYSCLK/UART_BAUDRATE/2/256 < 12)
+                      {
+                              TH1 = 256-(SYSCLK/UART_BAUDRATE/2/12);
+                              CKCON0 &= ~0x0B;                                        // T1M = 0; SCA1:0 = 00,if SYSCLK = 24.5MHZ,UART_BAUDRATE = 9600 kb
+             -sp,so choose this
+C51 COMPILER V9.53.0.0   LIB_C51_UART                                                      07/23/2019 17:10:27 PAGE 2   
+
+                              CKCON0 |= 0x00;                                                         //Timer1 user System clock divided by 12
+                      }
+                      #elif
+                      {
+                              TH1 = 256-(SYSCLK/UART_BAUDRATE/2/48);
+                              CKCON0 &= ~0x0B;                                        // T1M = 0; SCA1:0 = 10
+                              CKCON0 |=  0x02;                                                                //Timer1 user System clock divided by 48
+                      }
+                      #endif
+  59   1      
+  60   1              SCON0_TI  = 0;                      // Indicate TX0 ready
+  61   1      
+  62   1              IP       |= 0x10;                                   // Make UART high priority3,priority3 is the highest priority!
+  63   1      
+  64   1              SFRPAGE   = 0x10;
+  65   1              IPH      |= 0x10;
+  66   1              IE       |= 0x10;                   // Enable UART0 interrupts
+  67   1      
+  68   1              SFRPAGE = SFRPAGE_SAVE;
+  69   1      }
+  70          
+  71          void uart_init(void)
+  72          {
+  73   1              _uart_dev_init();
+  74   1              _uart_clock_select();
+  75   1      
+  76   1              memset((void *)&_uart_struct, 0, sizeof(UART_STRUCT_T));
+  77   1              _uart_struct.read       = _uart_struct.buff;
+  78   1              _uart_struct.write      = _uart_struct.buff;
+  79   1              _uart_struct.prompt = PROMPT;
+  80   1      
+  81   1              uart_cli_register_cmd("help" ,_uart_cli_show_cmd_help);
+  82   1      }
+  83          
+  84          static void _uart_deinit(void)
+  85          {
+  86   1              memset((void *)_uart_struct.buff, 0, UART_BUFF_LEN + 1);
+  87   1              _uart_struct.read       = _uart_struct.buff;
+  88   1              _uart_struct.write      = _uart_struct.buff;
+  89   1              _uart_struct.busy   = 0;
+  90   1              _uart_struct.cursor = 0;
+  91   1              _uart_struct.len        = 0;
+  92   1              _uart_struct.skip       = 0;
+  93   1      
+  94   1              memset((void *)&_uart_struct.cli.param, 0, sizeof(PARAM_INFO_T));
+  95   1      }
+  96          
+  97          /*
+  98           * 1.UART_BUFFµÄ´óÐ¡ÊÇ100 + 1¸ö×Ö·û£¬×îºóÒ»¸ö¿Õ¼äÓÃÓÚ±£´æ×Ö·û´®½áÊø·û'\0'
+  99           * 2.ÎªÁË±ÜÃâÊäÈë×Ö·û³¬¹ý100¸ö×Ö·û£¬º¯ÊýÀïÃæÔö¼ÓÌØÊâ´¦Àí£¬Ö»±£´æÇ°97¸ö¿É»ØÏÔ×Ö·û£¬Ê£ÏÂ3
+ 100           * ¸ö×Ö·û±£´æ¿ØÖÆ×Ö·û£¬Èç'\b','\r','\n'ºÍ·½Ïò¼ü£¬ÒòÎª·½Ïò¼üÊÇ×éºÏ¼ü£¬°üº¬3¸ö×Ö·û,ËùÒÔÊµ¼Ê¿É»ØÏÔµÄ×Ö·ûÊÇ97¸
+             -ö
+ 101           * ¼´ÊäÈë97¸ö×Ö·ûÒÔºó£¬¿ÉÒÔÒÆ¶¯¹â±ê£¬µ«²»ÄÜ¼ÌÐøÊäÈëÐÂµÄ×Ö·û£¬µ±È»É¾³ýÒ»¸ö×Ö·ûÒÔºó£¬ÓÖ¿ÉÒÔÊäÈëÒ»¸öÐÂµÄ×Ö·û
+ 102           */
+ 103          static void _uart_recv_char(uint8_t recv)
+ 104          {
+ 105   1              static bool key_flag = false;
+ 106   1      
+ 107   1              if(_uart_struct.write < _uart_struct.buff + UART_BUFF_LEN - 3)  //Ö»±£´æÇ°97¸ö×Ö·û£¬×îºóÃæ3¸ö×Ö·ûÖ»ÄÜÊÇ¿Ø
+             -ÖÆ×Ö·ûÈç'\b','\r','\n'ºÍ·½Ïò¼ü£¬ÒòÎª·½Ïò¼üÊÇ×éºÏ¼ü£¬°üº¬3¸ö×Ö·û
+ 108   1              {
+ 109   2                      if(*_uart_struct.write == '\0') //if current position is empty
+ 110   2                      {
+C51 COMPILER V9.53.0.0   LIB_C51_UART                                                      07/23/2019 17:10:27 PAGE 3   
+
+ 111   3                              *(_uart_struct.write) = recv;
+ 112   3                              _uart_struct.write ++;
+ 113   3                      }
+ 114   2              }
+ 115   1              else  //×îºóÃæµÄ3¸ö×Ö·û
+ 116   1              {
+ 117   2                      if(*_uart_struct.write == '\0')
+ 118   2                      {
+ 119   3                              if((recv == '\b') || (recv == '\r') || (recv == '\n'))
+ 120   3                              {
+ 121   4                                      *(_uart_struct.write) = recv;
+ 122   4                                      _uart_struct.write ++;
+ 123   4                              }
+ 124   3                              else if(recv == 0x1b)
+ 125   3                              {
+ 126   4                                      key_flag = true;
+ 127   4                              }
+ 128   3      
+ 129   3                              if(key_flag)
+ 130   3                              {
+ 131   4                                      *(_uart_struct.write) = recv;
+ 132   4                                      _uart_struct.write ++;
+ 133   4                              }
+ 134   3      
+ 135   3                              if(_uart_struct.write == _uart_struct.buff + UART_BUFF_LEN) //Èç¹ûbuffÒÑ¾­Ð´Âú
+ 136   3                              {
+ 137   4                                      key_flag = false;
+ 138   4                              }
+ 139   3                      }
+ 140   2              }
+ 141   1      }
+ 142          
+ 143          
+ 144          /*
+ 145           * ¶Á×Ö·ûº¯Êý±ØÐëÔö¼ÓÒ»¸öÑÓÊ±²ÎÊý£¬ÒòÎªÏñ·½Ïò¼üÊÇÒ»¸ö×éºÏ¼ü£¬
+ 146           * ÊÇÈý¸ö×Ö·û×éºÏ¶ø³É£¬¶Áµ½µÚÒ»¸ö×Ö·ûÒÔºó£¬ÓÐÊ±ºò²¢²»ÄÜÀïÃæ
+ 147           * ¶ÁÈ¡µÚ¶þ¸ö×Ö·û£¬ÒòÎªmcuÄÚ²¿µÄÆµÂÊÊÇÔ¶Ô¶¸ßÓÚuartµÄÍ¨ÐÅËÙÂÊµÄ
+ 148           */
+ 149          static uint8_t _uart_read_char(uint16_t time)
+ 150          {
+ 151   1              idata uint8_t  ch = 0;
+ 152   1      
+ 153   1              if(_uart_struct.write == _uart_struct.buff)  //indicate there are no datas
+ 154   1              {
+ 155   2                      return ch;
+ 156   2              }
+ 157   1      
+ 158   1              while(time-- != 0)
+ 159   1              {
+ 160   2                      if(_uart_struct.read < _uart_struct.write) //ÒòÎªÊÇ·ÇÑ­»·buff,ËùÒÔreadÖ¸ÕëÒ»¶¨ÊÇÐ¡ÓÚµÈÓÚwriteÖ¸Õë
+ 161   2                      {
+ 162   3                              if(*_uart_struct.read != '\0')  //if not equal NUL(¿Õ×Ö·û)
+ 163   3                              {
+ 164   4                                      ch = *_uart_struct.read;
+ 165   4                                      _uart_struct.read ++;
+ 166   4                                      return ch;
+ 167   4                              }
+ 168   3                              else
+ 169   3                              {
+ 170   4                                      ch = 0;
+ 171   4                              }
+ 172   3                      }
+ 173   2              }
+C51 COMPILER V9.53.0.0   LIB_C51_UART                                                      07/23/2019 17:10:27 PAGE 4   
+
+ 174   1              return ch;
+ 175   1      }
+ 176          
+ 177          static void _uart_putchar(char ch)
+ 178          {
+ 179   1              if (GET_BIT(XBR0, 0) == 0)  //if uart is disable
+ 180   1              {
+ 181   2                      return;
+ 182   2              }
+ 183   1      
+ 184   1              while(_uart_struct.busy);
+ 185   1              _uart_struct.busy = 1;
+ 186   1              SBUF0 = ch;
+ 187   1      }
+ 188          
+ 189          /*
+ 190           * ÒòÎªÔÚ³õÊ¼»¯µÄ¹ý³ÌÖÐ²¢ÇÒÈ«¾ÖÖÐ¶ÏÎ´´ò¿ªÖ®Ç°£¬ÓÐ¿ÉÄÜÐèÒª´òÓ¡ÐÅÏ¢
+ 191           * ÀýÈç¼ì²âSDAºÍSCLµÄµçÆ½×´Ì¬µÈµÈ£¬ËùÒÔÕâÀïÔÚÊä³öÐÅÏ¢Ö®Ç°£¬ÏÈ½«
+ 192           * È«¾ÖÖÐ¶Ï´ò¿ª
+ 193           */
+ 194          void uart_put_string(uint8_t *str)
+ 195          {
+ 196   1              bit EA_SAVE = IE_EA;
+ 197   1      
+ 198   1              IE_EA = 1;
+ 199   1              if (str == NULL)
+ 200   1                      return ;
+ 201   1      
+ 202   1              while(*str)
+ 203   1              {
+ 204   2                      _uart_putchar(*str);
+ 205   2                      str++;
+ 206   2              }
+ 207   1              IE_EA = EA_SAVE;
+ 208   1      }
+ 209          
+ 210          /*
+ 211           * ÒòÎªÔÚ³õÊ¼»¯µÄ¹ý³ÌÖÐ²¢ÇÒÈ«¾ÖÖÐ¶ÏÎ´´ò¿ªÖ®Ç°£¬ÓÐ¿ÉÄÜÐèÒª´òÓ¡ÐÅÏ¢
+ 212           * ÀýÈç¼ì²âSDAºÍSCLµÄµçÆ½×´Ì¬µÈµÈ£¬ËùÒÔÕâÀïÔÚÊä³öÐÅÏ¢Ö®Ç°£¬ÏÈ½«
+ 213           * È«¾ÖÖÐ¶Ï´ò¿ª
+ 214           */
+ 215          void uart_printf(uint8_t *fmt,...)
+ 216          {
+ 217   1              bit EA_SAVE = IE_EA;
+ 218   1      
+ 219   1          uint8_t string[255];
+ 220   1          va_list ap;
+ 221   1      
+ 222   1              IE_EA = 1;
+ 223   1      
+ 224   1          va_start(ap,fmt);                   //»ñµÃµÚÒ»¸öÊµ¼Ê²ÎÊýµÄÆðÊ¼µØÖ·
+ 225   1          vsprintf(string,fmt,ap);    //ÆäÊµÕâ¸öº¯Êý²ÅÊÇºËÐÄº¯Êý
+ 226   1          uart_put_string(string);
+ 227   1          va_end(ap);                         //½«ap¸³ÖµÎªNULL
+ 228   1      
+ 229   1          IE_EA = EA_SAVE;
+ 230   1      }
+ 231          
+ 232          /*
+ 233           * ¸ñÊ½»¯×Ö·û´®µÄÄ¿µÄ:
+ 234           * É¾³ýÄÇÐ©¿ØÖÆ×Ö·û£¬Ö»°üº¬ÃüÁî×éºÏµÄ¿É»ØÏÔ×Ö·û
+ 235           */
+ 236          static void _uart_format_buff(void)
+C51 COMPILER V9.53.0.0   LIB_C51_UART                                                      07/23/2019 17:10:27 PAGE 5   
+
+ 237          {
+ 238   1              uint8_t i = 0, j = 0;
+ 239   1              uint8_t buff[UART_BUFF_LEN] = {'\0'};
+ 240   1              uint8_t len = strlen(_uart_struct.buff);
+ 241   1      
+ 242   1              for(i = 0; _uart_struct.buff[i] != '\0'; i++)
+ 243   1              {
+ 244   2                      if(_uart_struct.buff[i] == 0x1b && _uart_struct.buff[i + 1] == 0x5b)  //indicate direction key pressed
+ 245   2                      {
+ 246   3                              i += 3; //skip 3 chars
+ 247   3      
+ 248   3                      }
+ 249   2      
+ 250   2                      if(CHECK_CHAR_VALID(_uart_struct.buff[i]))
+ 251   2                      {
+ 252   3                              buff[j++] = _uart_struct.buff[i];
+ 253   3                      }
+ 254   2              }
+ 255   1      
+ 256   1              if(len > 0)
+ 257   1              {
+ 258   2                      CLEAR_BIT(IE,4);   // Disable UART0 interrupts
+ 259   2                      memcpy(_uart_struct.buff, buff, UART_BUFF_LEN);
+ 260   2                      _uart_struct.write  = _uart_struct.buff + j;  //update write pointer
+ 261   2                      SET_BIT(IE,4);     // Enable UART0 interrupts
+ 262   2      
+ 263   2                      _uart_struct.read   = _uart_struct.buff + j;  //update read pointer
+ 264   2              }
+ 265   1      }
+ 266          
+ 267          /*
+ 268           *×¢ÒâÒ»Ð©ÌØÊâ×Ö·ûµÄ´¦Àí£¬ÕâÐ©ÌØÊâ×Ö·û²¢²»ÐèÒª±£´æÆðÀ´
+ 269           */
+ 270          static void _uart_handle_direction_key(uint8_t ch)
+ 271          {
+ 272   1              switch(ch)
+ 273   1              {
+ 274   2                      case 'A': //up direction key, ÊÇ×éºÏ×Ö·û'ESC +¡¾ + A',ASCIIÎª0x1b + 0x5b + 0x41
+ 275   2                      {
+ 276   3                              _uart_cli_read_history_cmd();
+ 277   3                              break;
+ 278   3                      }
+ 279   2                      case 'B': //down direction key£¬ÊÇ×éºÏ×Ö·û'ESC +¡¾ + B',ASCIIÎª0x1b + 0x5b + 0x42
+ 280   2                      {
+ 281   3                              _uart_cli_read_history_cmd();
+ 282   3                              break;
+ 283   3                      }
+ 284   2                      case 'C': //right direciton key£¬ÊÇ×éºÏ×Ö·û'ESC +¡¾ + C',ASCIIÎª0x1b + 0x5b + 0x43
+ 285   2                      {
+ 286   3                              _uart_format_buff();
+ 287   3                              if(_uart_struct.cursor < _uart_struct.len)
+ 288   3                              {
+ 289   4                                      _uart_putchar(0x1b);
+ 290   4                                      _uart_putchar(0x5b);
+ 291   4                                      _uart_putchar('C');   //ÕâÈý¾äµÄ×÷ÓÃ¾ÍÊÇ¹â±êÓÒÒÆ
+ 292   4                                      _uart_struct.cursor ++;
+ 293   4                              }
+ 294   3                              break;
+ 295   3                      }
+ 296   2                      case 'D': //left direciton key£¬ÊÇ×éºÏ×Ö·û'ESC +¡¾ + D',ASCIIÎª0x1b + 0x5b + 0x44
+ 297   2                      {
+ 298   3                              _uart_format_buff();
+ 299   3                              if(_uart_struct.cursor > 0)
+C51 COMPILER V9.53.0.0   LIB_C51_UART                                                      07/23/2019 17:10:27 PAGE 6   
+
+ 300   3                              {
+ 301   4                                      _uart_putchar(0x1b);
+ 302   4                                      _uart_putchar(0x5b);
+ 303   4                                      _uart_putchar('D'); //ÕâÈý¾äµÄ×÷ÓÃ¾ÍÊÇ¹â±ê×óÒÆ
+ 304   4                                      _uart_struct.cursor--;
+ 305   4                              }
+ 306   3                              break;
+ 307   3                      }
+ 308   2                      default :
+ 309   2                              break;
+ 310   2              }
+ 311   1      }
+ 312          
+ 313          static void _uart_cursor_left_move(uint8_t len)
+ 314          {
+ 315   1              uint8_t i = 0;
+ 316   1      
+ 317   1              for(i = len; i > 0 && (_uart_struct.cursor > 0); i--)
+ 318   1              {
+ 319   2                      _uart_putchar('\b');
+ 320   2                      _uart_struct.cursor --;
+ 321   2              }
+ 322   1      }
+ 323          
+ 324          /*
+ 325           * ²åÈë×Ö·ûµÄ´¦ÀíÁ÷³Ì:
+ 326           * 1.Ê×ÏÈÅÐ¶ÏÊÇÔÚ×Ö·û´®½áÎ²»¹ÊÇÖÐ¼ä
+ 327           * 2.Èç¹ûÊÇ×Ö·û´®½áÎ²£¬ÄÇÃ´ºÜÈÝÒ×£¬Ö±½ÓÊä³ö¾ÍºÃ
+ 328           * 3.Èç¹ûÊÇ×Ö·û´®ÖÐ¼ä£¬´¦ÀíÁ÷³ÌÈçÏÂ£¬¼ÙÉèµ±Ç°×Ö·û´®ÊÇ12345,ÒªÔÚ23Ö±½Ó²åÈë×Ö·ûa£¬ÄÇÃ´¹â±êÔÚ23Ö®¼ä
+ 329           * 4.ÄÇÃ´ÏÔÊ¾±äÎª12a345£¬Êµ¼ÊbuffÖÐµÄÊý¾ÝÎª12345a£¬ÒòÎªÊäÈëaµÄÊ±ºòÊ×ÏÈ½ÓÊÕ²¢´æ·Åµ½ÁËbuffÖÐ
+ 330           * 5.ÏÈ¿½±´±£Áô¹â±êºóÃæµÄ×Ö·û´®£¬¼´345´æ·Åµ½buff
+ 331           * 6.È»ºó½«ÐÂ²åÈëµÄ×Ö·û²åÈëµ½¹â±êµ±Ç°Î»ÖÃ
+ 332           * 7.ÔÙ½«buff¿½±´µ½¹â±êºóµÄÎ»ÖÃ£¬Íê³É¶ÔÔ­bufµÄ¸üÐÂ£¬½ÓÏÂÀ´¾ÍÊÇÏÔÊ¾µÄ´¦ÀíÁË£¬×¢ÒâÊäÈë×Ö·û»òÕß×Ö·û´®ÒÔºó£¬¹â
+             -±êÎ»ÖÃ¸Ä±äÁËÒª¼°Ê±¸üÐÂ_uart_struct.cursorµÄÖµ
+ 333           */
+ 334          static void _uart_insert_char(uint8_t ch, uint8_t pos)
+ 335          {
+ 336   1              uint8_t buff[UART_BUFF_LEN] = {'\0'};
+ 337   1              uint8_t *cur_pos = _uart_struct.buff + pos;
+ 338   1      
+ 339   1              if(ch == SKIP_CHAR && pos == 0x0)
+ 340   1              {
+ 341   2                      _uart_struct.skip = 1;
+ 342   2              }
+ 343   1      
+ 344   1              if(!CHECK_CHAR_VALID(ch) || _uart_struct.skip)
+ 345   1              {
+ 346   2                      return;
+ 347   2              }
+ 348   1      
+ 349   1              if(pos < _uart_struct.len)  //indicate the cursor at middle
+ 350   1              {
+ 351   2                      _uart_format_buff();
+ 352   2      
+ 353   2                      /*¸üÐÂÔ­buff*/
+ 354   2                      strncpy(buff, cur_pos, _uart_struct.len - pos);         //±£´æ¹â±êºóÃæµÄ×Ö·û´®
+ 355   2                      *cur_pos = ch;
+ 356   2                      cur_pos ++;                                                                             //¼Ó1µÄÄ¿µÄÊÇÎªÁË¸øÐÂ²åÈë×Ö·ûÔ¤Áô¿Õ¼ä
+ 357   2                      memcpy(cur_pos, buff, strlen(buff) + 1);                        //¸üÐÂÔ­buff£¬¿½±´strlen(buff) + 1¸ö×Ö·ûµÄÄ¿µÄÊÇÎªÁËÔö¼Ó×Ö·
+             -û´®Ä©Î²µÄ'\0'×Ö·û,Ê£Óà³¤¶ÈÎªUART0_BUFF_LEN - pos - 1
+ 358   2      
+ 359   2                      /*ÏÔÊ¾´¦Àí*/
+ 360   2                      _uart_putchar(ch);
+C51 COMPILER V9.53.0.0   LIB_C51_UART                                                      07/23/2019 17:10:27 PAGE 7   
+
+ 361   2                      uart_put_string(buff);
+ 362   2                      _uart_struct.cursor = strlen(_uart_struct.buff);    //¸üÐÂ¹â±êÎ»ÖÃ
+ 363   2                      _uart_cursor_left_move(strlen(buff));                           //»Ö¸´¹â±êµ½ÊäÈë×Ö·ûµÄÎ»ÖÃ
+ 364   2              }
+ 365   1              else  //indicate the cursor at end
+ 366   1              {
+ 367   2                      _uart_putchar(ch);
+ 368   2                      _uart_struct.cursor ++;
+ 369   2              }
+ 370   1      
+ 371   1              _uart_struct.len ++;
+ 372   1      }
+ 373          
+ 374          
+ 375          /*
+ 376           * É¾³ý×Ö·ûµÄ´¦ÀíÁ÷³Ì
+ 377           * Óë²åÈë×Ö·ûµÄ´¦ÀíË¼Â·Ò»Ñù£¬ÏÈÉ¾³ýÖ¸¶¨×Ö·û£¬È»ºó×Ö·û´®Æ´½Ó
+ 378           * 123456789,¼ÙÉèµ±Ç°¹â±êÎ»ÓÚ56Ö®¼ä
+ 379           * 1234 6789,Ö´ÐÐÓï¾ä_uart0_put_string("\b \b");ºóµÄÐ§¹û£¬²¢ÇÒµ±Ç°¹â±êÔÚ4ºóÃæ£¬¶ø²»ÊÇ5ºóÃæ
+ 380           * 123467899,Ö´ÐÐÓï¾ä_uart0_put_string(str);ºóµÄÐ§¹û,²¢ÇÒµ±Ç°¹â±êÔÚÁ½¸ö9Ö®¼ä
+ 381           * 12346789, Ö´ÐÐÓï¾ä_uart0_put_string(" \b");ºóµÄÐ§¹û,µ±Ç°¹â±êÔÚ9ºóÃæ
+ 382           */
+ 383          static void _uart_delete_char(uint8_t pos)
+ 384          {
+ 385   1              uint8_t buff[UART_BUFF_LEN] = {'\0'};
+ 386   1              uint8_t *cur_pos = _uart_struct.buff + pos;
+ 387   1      
+ 388   1              if(pos > 0)
+ 389   1              {
+ 390   2                      _uart_format_buff();
+ 391   2                      /*¸üÐÂÔ­buff*/
+ 392   2                      strcpy(buff, cur_pos);          //±£´æ¹â±êºóÃæµÄ×Ö·û´®
+ 393   2                      cur_pos --;                             //¼õ1µÄÄ¿µÄÊÇÎªÁË¸²¸Ç±»É¾³ýµÄÄÇ¸ö×Ö·û
+ 394   2                      CLEAR_BIT(IE,4);   // Disable UART0 interrupts
+ 395   2                      memcpy(cur_pos, buff, strlen(buff) + 1);        //¸üÐÂÔ­buff£¬¿½±´strlen(buff) + 1¸ö×Ö·ûµÄÄ¿µÄÊÇÎªÁËÔö¼Ó×Ö·û´
+             -®Ä©Î²µÄ'\0'×Ö·û,Ê£Óà³¤¶ÈÎªUART0_BUFF_LEN - pos + 1
+ 396   2                      _uart_struct.write --;  //ÒòÎªÉ¾³ýÁËÒ»¸ö×Ö·û£¬ËùÒÔwriteÖ¸ÕëÐèÒª¼õ1
+ 397   2                      SET_BIT(IE,4);   // Enable UART0 interrupts
+ 398   2      
+ 399   2                      _uart_struct.read -- ;  //ÒòÎªÉ¾³ýÁËÒ»¸ö×Ö·û£¬ËùÒÔreadÖ¸ÕëÐèÒª¼õ1
+ 400   2                      _uart_struct.len = strlen(_uart_struct.buff);
+ 401   2      
+ 402   2                      /*ÏÔÊ¾´¦Àí*/
+ 403   2                      uart_put_string("\b \b");   //´òÓ¡'\b',±íÊ¾¹â±êÇ°ÒÆÒ»¸ö×Ö·û£¬È»ºó´òÓ¡¿Õ¸ñ£¬É¾³ý¹â±êºóµÄ×Ö·û£¬ÔÙ´òÓ¡'\b',
+             - ¹â±êÔÙ´ÎÇ°ÒÆÒ»¸ö×Ö·û£¬×ÛºÏÐ§¹û¾ÍÊÇÉ¾³ý×Ö·ûºó£¬¹â±êÎ»ÖÃ²»±ä
+ 404   2                      uart_put_string(buff);      //¹â±êºóÃæµÄ×Ö·ûÍ¬²½Ç°ÒÆ£¬¹â±êÒÑ¾­ÒÆµ½ÁË×Ö·û´®µÄµ¹ÊýµÚ¶þÎ»
+ 405   2                      uart_put_string(" \b");   //¹â±êÔÚ×Ö·û´®µÄ×îºóÃæ
+ 406   2                      _uart_struct.cursor = _uart_struct.len;
+ 407   2                      _uart_cursor_left_move(strlen(buff));  //½«¹â±ê»Ö¸´µ½É¾³ý×Ö·ûµÄÎ»ÖÃ
+ 408   2              }
+ 409   1      }
+ 410          
+ 411          static void _uart_delete_string(void)
+ 412          {
+ 413   1              uint8_t i = 0;
+ 414   1      
+ 415   1              _uart_format_buff();
+ 416   1      
+ 417   1              //½«¹â±êÒÆ¶¯µ½×Ö·û´®µÄ×îºóÃæ
+ 418   1              for(i = 0; _uart_struct.cursor < _uart_struct.len; i ++)
+ 419   1              {
+ 420   2                      _uart_putchar(0x1b);
+ 421   2                      _uart_putchar(0x5b);
+C51 COMPILER V9.53.0.0   LIB_C51_UART                                                      07/23/2019 17:10:27 PAGE 8   
+
+ 422   2                      _uart_putchar('C');   //ÕâÈý¾äµÄ×÷ÓÃ¾ÍÊÇ¹â±êÓÒÒÆ
+ 423   2                      _uart_struct.cursor ++;
+ 424   2              }
+ 425   1      
+ 426   1              for(i = 0; i < _uart_struct.len; i++)
+ 427   1              {
+ 428   2                      uart_put_string("\b \b");   //´òÓ¡'\b',±íÊ¾¹â±êÇ°ÒÆÒ»¸ö×Ö·û£¬È»ºó´òÓ¡¿Õ¸ñ£¬É¾³ý¹â±êºóµÄ×Ö·û£¬ÔÙ´òÓ¡'\b',
+             - ¹â±êÔÙ´ÎÇ°ÒÆÒ»¸ö×Ö·û£¬×ÛºÏÐ§¹û¾ÍÊÇÉ¾³ý×Ö·ûºó£¬¹â±êÎ»ÖÃ²»±ä
+ 429   2              }
+ 430   1      
+ 431   1              _uart_deinit();
+ 432   1      }
+ 433          
+ 434          /*
+ 435           * UARTµÄ´¦ÀíÁ÷³Ì
+ 436           * 1.UARTÖ»¸ºÔð½ÓÊÕÊý¾Ý£¬²¢½«Êý¾Ý±£´æµ½UART_BUFF,ÕâÑù´¦ÀíµÄÓÅÊÆÊÇÈ«Ë«¹¤£¬Ìá¸ß´®¿ÚµÄÏìÓ¦ËÙ¶È£¬Èç¹û½ÓÊÕÒ»¸ö×
+             -Ö·ûÏÔÊ¾Ò»¸ö×Ö·û£¬´¦ÀíËÙ¶È»áÂýºÜ¶à
+ 437           * 2.CMD_BUFFµÄÊý¾ÝÊÇ´ÓUART_BUFFÖÐ¶ÁÈ¡µÄ£¬ÆäÊµÊÇ¿ÉÒÔ¹²ÓÃµÄ£¬ÎÒÃÇÕâÀï¾Í²ÉÈ¡¹²ÓÃµÄ²ßÂÔ£¬½ÚÔ¼RAM
+ 438           * 3.Èç¹ûÃ¿ÊäÈëÒ»¸ö×Ö·û£¬¾ÍÁ¢¼´´ÓUART_BUFF¶ÁÈ¡µ½CMD_BUFF,ÄÇÃ´É¾³ý×Ö·ûµÄÊ±ºò£¬Á½·ÝÊý¾Ý¶¼ÒªÉ¾³ý£¬ËùÒÔÓ¦¸ÃµÈÊ
+             -äÈë½áÊøÒÔºó£¬²Å½«Êý¾Ý¸üÐÂµ½CMD_BUFF
+ 439           * 4.Ð´×Ö·ûºÍ¶Á×Ö·û»ù±¾Í¬²½£¬Ä¿µÄ¾ÍÊÇÎªÁË»ØÏÔ
+ 440           * 5.¶¨ÒåÒ»¸ö·ÇÑ­»·UART_BUFF,µ±Ð´ÂúµÄÊ±ºò£¬½«Ð´Ö¸ÕëÖØÐÂÖ¸ÏòUART_BUFFµÄÆðÊ¼Î»ÖÃ£¬ÒòÎªÊÇ·ÇÑ­»·buff£¬ËùÒÔread
+             -Ö¸ÕëÓÀÔ¶Ð¡ÓÚµÈÓÚwriteÖ¸Õë
+ 441           * */
+ 442          void uart_event_handle(void)
+ 443          {
+ 444   1              idata char ch;
+ 445   1      
+ 446   1              while((ch = _uart_read_char(1)) != 0)
+ 447   1              {
+ 448   2                      if(ch == '\n' || ch == '\r') //°´ÏÂ»Ø³µ»òÕß»»ÐÐ·û,±íÊ¾ÊäÈë½áÊø
+ 449   2                      {
+ 450   3                              //action handle in here
+ 451   3                              _uart_format_buff();
+ 452   3                              _uart_cli_run(_uart_struct.buff);
+ 453   3                              _uart_deinit();
+ 454   3                              uart_put_string(_uart_struct.prompt);
+ 455   3                      }
+ 456   2                      else if(ch == '\b')
+ 457   2                      {
+ 458   3                              _uart_delete_char(_uart_struct.cursor);
+ 459   3                      }
+ 460   2                      else if(ch == 0x1b && _uart_read_char(0xffff) == 0x5b) //·½Ïò¼üÊÇ×éºÏ×Ö·û'ESC +¡¾ + A',ASCIIÎª0x1b + 0x5
+             -b + 0x41
+ 461   2                      {
+ 462   3                              _uart_handle_direction_key(_uart_read_char(0xffff));
+ 463   3                      }
+ 464   2                      else //´¦ÀíÊ£ÓàÆäËûµÄ×Ö·û£¬¼´0x21 ~ 0x7E
+ 465   2                      {
+ 466   3                              _uart_insert_char(ch, _uart_struct.cursor);
+ 467   3                      }
+ 468   2              }
+ 469   1      }
+ 470          
+ 471          SI_INTERRUPT(UART0_ISR, UART0_IRQn)
+ 472          {
+ 473   1              if (SCON0_RI == 1)               // Receive
+ 474   1              {
+ 475   2                      uint8_t recv = SBUF0;
+ 476   2                      _uart_recv_char(recv);
+ 477   2                      SCON0_RI = 0;                    // Clear interrupt flag
+ 478   2              }
+ 479   1      
+C51 COMPILER V9.53.0.0   LIB_C51_UART                                                      07/23/2019 17:10:27 PAGE 9   
+
+ 480   1              if(SCON0_TI == 1)
+ 481   1              {
+ 482   2                      SCON0_TI  = 0;
+ 483   2                      _uart_struct.busy = 0;
+ 484   2              }
+ 485   1      }
+ 486          
+ 487          /***********************************************UART0 CLI HANDLE******************************************
+             -/
+ 488          
+ 489          static void _uart_cli_format_cmd(uint8_t *str)
+ 490          {
+ 491   1              uint8_t  *str_sect = NULL, buff[UART_BUFF_LEN] = {0};
+ 492   1      
+ 493   1              if((str == NULL) || (*str == '\0'))
+ 494   1              {
+ 495   2                      return;
+ 496   2              }
+ 497   1      
+ 498   1              strcpy(buff, str);                      //±ØÐë×¢Òâ£¬strtokº¯Êý»áÐÞ¸ÄÔ­×Ö·û´®£¬ËùÒÔ±ØÐë½«×Ö·û´®¿½±´Ò»·Ý£¬µ¥¶À´¦Àí£¬È·±£Ô­×Ö·
+             -û´®²»±»ÐÞ¸Ä
+ 499   1              str_sect = strtok(buff," ");
+ 500   1              while(str_sect)
+ 501   1              {
+ 502   2                      strcpy(_uart_struct.cli.param.argv[_uart_struct.cli.param.argc ++], str_sect);
+ 503   2                      str_sect = strtok(NULL," ");
+ 504   2              };
+ 505   1      }
+ 506          
+ 507          static bool _uart_cli_find_history_cmd(uint8_t *str)
+ 508          {
+ 509   1              uint8_t i = 0;
+ 510   1      
+ 511   1              if((str == NULL) || (*str == '\0'))
+ 512   1              {
+ 513   2                      return false;
+ 514   2              }
+ 515   1      
+ 516   1              for (i = 0; i < _uart_struct.cli.history.write; i++)
+ 517   1              {
+ 518   2                      if(!strcmp(_uart_struct.cli.history.buff[i], str))
+ 519   2                      {
+ 520   3                              return true;
+ 521   3                      }
+ 522   2              }
+ 523   1      
+ 524   1              return false;
+ 525   1      }
+ 526          
+ 527          static void _uart_cli_save_history_cmd(uint8_t *str)
+ 528          {
+ 529   1              /*
+ 530   1              if(_uart_cli_find_history_cmd(str))
+ 531   1              {
+ 532   1                      return;
+ 533   1              }
+ 534   1              else
+ 535   1              */
+ 536   1              {
+ 537   2                      memset(_uart_struct.cli.history.buff[_uart_struct.cli.history.write], 0, UART_BUFF_LEN);
+ 538   2                      strcpy(_uart_struct.cli.history.buff[_uart_struct.cli.history.write],str);
+ 539   2                      _uart_struct.cli.history.write ++;
+ 540   2                      _uart_struct.cli.history.read = _uart_struct.cli.history.write;
+C51 COMPILER V9.53.0.0   LIB_C51_UART                                                      07/23/2019 17:10:27 PAGE 10  
+
+ 541   2      
+ 542   2                      if(_uart_struct.cli.history.write >= CLI_HISTORY_CMD_NUM)
+ 543   2                      {
+ 544   3                              _uart_struct.cli.history.full = true;
+ 545   3                              _uart_struct.cli.history.write = 0;
+ 546   3                      }
+ 547   2              }
+ 548   1      }
+ 549          
+ 550          /*
+ 551           * ÒòÎª×¢²áÃüÁîµÄ¸ñÊ½ÊÇ±äÁ¿ÒÔ×Ö·û'&'¿ªÍ·£¬³£Á¿²ÎÊýÒÔ×Ö·û'#'¿ªÍ·,read|write»òÕßset|getÃüÁî×éºÏµ½Ò»¸ö×Ó´®,Õâ
+             -¸ö×Ó´®Ö®¼äÓÃ×Ö·û'|'·Ö¸ô¿ª
+ 552           * ÀýÈç:
+ 553           * [opr|opw] &baseAddr &OffAddr #ParmNum(0~0xff),Êµ¼ÊÊäÈëµÄÃüÁî¿ÉÄÜÊÇopr 0xa0 0x0,opw 0x16 0x2 0x10µÈ
+ 554           * [get|set] rx_los mode #[0|1],Êµ¼ÊÊäÈëµÄÃüÁî¿ÉÄÜÊÇget rx_los mode,set rx_los mode 0
+ 555           *
+ 556           */
+ 557          static uint8_t _uart_cli_special_char_match(uint8_t *str)
+ 558          {
+ 559   1              uint8_t *p = str,i = 0, ret = 0, buff[CLI_STR_SECTION_LEN] = {0};
+ 560   1      
+ 561   1              if((str == NULL) || (*str == '\0'))
+ 562   1              {
+ 563   2                      return NONE_TYPE;
+ 564   2              }
+ 565   1      
+ 566   1              for(; *p != '\0'; p++)
+ 567   1              {
+ 568   2                      if(*p == '&')
+ 569   2                      {
+ 570   3                              return VARIABLE_STR__TYPE;
+ 571   3                      }
+ 572   2                      else if(*p == '#')
+ 573   2                      {
+ 574   3                              return PARAM_STR__TYPE;
+ 575   3                      }
+ 576   2                      else if((*p == '[') || (*p == ']') || (*p == '|'))
+ 577   2                      {
+ 578   3                              return MULTI_PARAMS_STR_TYPE;
+ 579   3                      }
+ 580   2              }
+ 581   1      
+ 582   1              return NONE_TYPE;
+ 583   1      }
+ 584          
+ 585          
+ 586          /*
+ 587           * ÊäÈëµÄÃüÁîÐèÒª¸ù¾Ý×¢²áµÄÃüÁîÐÅÏ¢Æ¥Åä£¬»ù±¾Ë¼ÏëÈçÏÂ:
+ 588           * 1.ÊäÈëµÄÃüÁî±È½Ï¼ò½à£¬ÒÔÒ»¸ö¿Õ¸ñ×Ö·û½«Ã¿¸ö×Ö·û´®¶Î·Ö¿ª£¬µ±½ÓÊÕÊäÈëµÄ×Ö·û´®ÒÔºó£¬ÏÈ¸ñÊ½»¯£¬½«Æä·Ö¶Î±£´æÔ
+             -Ú_uart_struct.cli.param.argvÖÐ
+ 589           * 2.±éÀú×¢²áµÄ×Ö·û´®£¬È»ºó¿ªÊ¼"·Ö½â"×¢²áµÄ×Ö·û´®£¬Ò»±ß·Ö½â£¬Ò»±ß±È½Ï£¬ÏÈÒÔ¿Õ¸ñ×Ö·û·Ö½â£¬Èç¹û²»Æ¥Åä£¬ÅÐ¶ÏÊ
+             -Ç·ñÊÇ±íÊ¾ÌØÊâ²ÎÊýµÄ×Ö·û´®£¬Èç¹ûÊÇÒÔ×Ö·û&ºÍ×Ö·û#¿ªÍ·µÄ×Ö·û´®£¬Ö±½ÓÌø¹ý²»Æ¥Åä
+ 590           * 3.Èç¹û²»ÊÇÒÔ×Ö·û&ºÍ×Ö·û#¿ªÍ·µÄ×Ö·û´®£¬ÅÐ¶ÏÊÇ²»ÊÇÃüÁî×éºÏ×Ö·û´®¶Î£¬ÒòÎªÕâÀïÊ¹ÓÃÁË¿âº¯Êýstrstrº¯ÊýÀ´Æ¥Åä£
+             -¬ËùÒÔµ±Á½¸öÃüÁî°üº¬ÏàÍ¬µÄ×Ö·û´®µÄÊ±ºò£¬×Ö·û´®³¤µÄÃüÁî±ØÐëÔÚ×Ö·û´®¶ÎµÄÃüÁîºóÃæ
+ 591           * 4.ÀýÈç[opr|opw] &baseAddr &OffAddr #ParmNum(0~0xff)±ØÐëÔÚ[oprt|opwt] &baseAddr &OffAddr #ParmNum(0~0xff
+             -)Ç°Ãæ×¢²á
+ 592           */
+ 593          static bool _uart_cli_string_match(uint8_t *src)
+ 594          {
+ 595   1              uint8_t  *str_sect = NULL, buff[UART_BUFF_LEN] = {0}, i = 0;
+ 596   1      
+ 597   1              if((src == NULL) || (*src == '\0'))
+ 598   1              {
+C51 COMPILER V9.53.0.0   LIB_C51_UART                                                      07/23/2019 17:10:27 PAGE 11  
+
+ 599   2                      return false;
+ 600   2              }
+ 601   1      
+ 602   1              strcpy(buff, src);
+ 603   1      
+ 604   1              //uart_put_string("-00-");
+ 605   1              //uart_put_string(src);
+ 606   1              str_sect = strtok(buff," ");
+ 607   1              //uart_put_string("-11-");
+ 608   1              //uart_put_string(str_sect);
+ 609   1      
+ 610   1              /*
+ 611   1              for(i = 0; i < _uart_struct.cli.param.argc; i++)
+ 612   1              {
+ 613   1                      uart_printf("-aa%bu-", i);
+ 614   1                      uart_put_string(_uart_struct.cli.param.argv[i]);
+ 615   1              }
+ 616   1              */
+ 617   1      
+ 618   1              //uart_put_string("-66-");
+ 619   1              while(str_sect)
+ 620   1              {
+ 621   2                      //uart_put_string("-77-");
+ 622   2                      if(!strcmp(str_sect, _uart_struct.cli.param.argv[i]))  //if match success
+ 623   2                      {
+ 624   3                              str_sect = strtok(NULL," ");  //»ñÈ¡ÏÂÒ»¸ö×Ö·û´®¶Î
+ 625   3                              i ++;
+ 626   3                              //uart_put_string("-22-");
+ 627   3                              //uart_put_string(str_sect);
+ 628   3                      }
+ 629   2                      else
+ 630   2                      {
+ 631   3                              uint8_t type = _uart_cli_special_char_match(str_sect);
+ 632   3      
+ 633   3                              //uart_put_string("-88-");
+ 634   3                              //uart_printf("\r\n%type = %bu",type);
+ 635   3      
+ 636   3                              if(type == MULTI_PARAMS_STR_TYPE)
+ 637   3                              {
+ 638   4                                      if(strstr(str_sect,_uart_struct.cli.param.argv[i]))  //if in multi params string include target str , 
+             -indicate match success
+ 639   4                                      {
+ 640   5                                              str_sect = strtok(NULL," ");
+ 641   5                                              i ++;
+ 642   5                                              //uart_put_string("-55-");
+ 643   5                                              //uart_put_string(str_sect);
+ 644   5                                      }
+ 645   4                                      else
+ 646   4                                      {
+ 647   5                                              //uart_put_string("-99-");
+ 648   5                                              //uart_put_string(str_sect);
+ 649   5                                              return false;
+ 650   5                                      }
+ 651   4                              }
+ 652   3                              else if((type == VARIABLE_STR__TYPE) || (type == PARAM_STR__TYPE)) //Èç¹ûÓÐÌØÊâ×Ö·û&»òÕß#±íÊ¾Æ¥Åä³É¹¦
+ 653   3                              {
+ 654   4                                      str_sect = strtok(NULL," ");
+ 655   4                                      i ++;
+ 656   4                                      //uart_put_string("-33-");
+ 657   4                                      //uart_put_string(str_sect);
+ 658   4                              }
+ 659   3                              else
+ 660   3                              {
+C51 COMPILER V9.53.0.0   LIB_C51_UART                                                      07/23/2019 17:10:27 PAGE 12  
+
+ 661   4                                      //uart_put_string("-44-");
+ 662   4                                      //uart_put_string(str_sect);
+ 663   4                                      return false;
+ 664   4                              }
+ 665   3                      }
+ 666   2              }
+ 667   1              //uart_put_string("-99-");
+ 668   1              //uart_put_string(src);
+ 669   1              return true;
+ 670   1      }
+ 671          
+ 672          static REGISTER_CMD_T* _uart_cli_cmd_match()
+ 673          {
+ 674   1              REGISTER_CMD_T *command = (REGISTER_CMD_T *)&_uart_struct.cli.cmd.command[0];
+ 675   1              uint8_t i = 0;
+ 676   1      
+ 677   1              for(i = 0; i < _uart_struct.cli.cmd.num; i++)
+ 678   1              {
+ 679   2                      if(_uart_cli_string_match(command->name))
+ 680   2                      {
+ 681   3                              return command;
+ 682   3                      }
+ 683   2                      command ++;
+ 684   2              }
+ 685   1      
+ 686   1              return NULL;
+ 687   1      }
+ 688          
+ 689          static void _uart_cli_run(uint8_t *str)
+ 690          {
+ 691   1              RETURN_VALUE_TYPE ret = RET_OK;
+ 692   1              REGISTER_CMD_T *command = NULL;
+ 693   1              uint8_t len = 0;
+ 694   1      
+ 695   1              //uart_put_string("111");
+ 696   1              //uart_printf("ch = %bu", str[0]);
+ 697   1              //uart_put_string("222");
+ 698   1      
+ 699   1              if((str == NULL) || (*str == '\0'))
+ 700   1              {
+ 701   2                      return;
+ 702   2              }
+ 703   1      
+ 704   1      
+ 705   1              _uart_cli_save_history_cmd(str);
+ 706   1              _uart_cli_format_cmd(str);
+ 707   1      
+ 708   1              command = _uart_cli_cmd_match();
+ 709   1      
+ 710   1              if(command != NULL)
+ 711   1              {
+ 712   2                      ret = command->func();
+ 713   2                      if(RET_OK != ret)
+ 714   2                      {
+ 715   3                              if(RET_NO_PERMISSION == ret)
+ 716   3                              {
+ 717   4                                      uart_put_string("\r\nPlease write passward '0x8f 0x9e 0xad 0xec' at first");
+ 718   4                              }
+ 719   3      
+ 720   3                              uart_put_string("\r\n---ATECMDRESULT--- FAIL");
+ 721   3                      }
+ 722   2                      else
+ 723   2                      {
+C51 COMPILER V9.53.0.0   LIB_C51_UART                                                      07/23/2019 17:10:27 PAGE 13  
+
+ 724   3                              uart_put_string("\r\n---ATECMDRESULT--- OK");
+ 725   3                      }
+ 726   2              }
+ 727   1              else
+ 728   1              {
+ 729   2                      uart_put_string("\r\nCommand not recognised.  Enter 'help' to view a list of available commands.");
+ 730   2              }
+ 731   1      
+ 732   1      }
+ 733          
+ 734          static uint8_t _uart_cli_show_cmd_help()
+ 735          {
+ 736   1              REGISTER_CMD_T *command = (REGISTER_CMD_T *)&_uart_struct.cli.cmd.command[0];
+ 737   1              uint8_t i = 0;
+ 738   1      
+ 739   1              for(i = 0; i < _uart_struct.cli.cmd.num; i++)
+ 740   1              {
+ 741   2                      uart_put_string("\r\n        ");
+ 742   2                      uart_put_string(command->name);
+ 743   2                      command ++;
+ 744   2              }
+ 745   1              return RET_OK;
+ 746   1      }
+ 747          
+ 748          void  uart_cli_register_cmd(uint8_t *name,FUNCTION func)   //×¢²áÃüÁî´¦Àíº¯Êý
+ 749          {
+ 750   1              if((name == NULL) || (func == NULL))
+ 751   1              {
+ 752   2                      return;
+ 753   2              }
+ 754   1      
+ 755   1              if(_uart_struct.cli.cmd.num < CLI_CMD_NUM)
+ 756   1              {
+ 757   2                      _uart_struct.cli.cmd.command[_uart_struct.cli.cmd.num].name   = name;
+ 758   2                      _uart_struct.cli.cmd.command[_uart_struct.cli.cmd.num].func       = func;
+ 759   2                      _uart_struct.cli.cmd.num ++;
+ 760   2              }
+ 761   1      }
+ 762          
+ 763          static void _uart_cli_read_history_cmd(void)
+ 764          {
+ 765   1              if(_uart_struct.cli.history.read > 0)
+ 766   1              {
+ 767   2                      _uart_delete_string();
+ 768   2                      _uart_struct.cli.history.read --;
+ 769   2                      uart_put_string(_uart_struct.cli.history.buff[_uart_struct.cli.history.read]);
+ 770   2      
+ 771   2                      CLEAR_BIT(IE,4);   // Disable UART0 interrupts;
+ 772   2                      memcpy(_uart_struct.buff,_uart_struct.cli.history.buff[_uart_struct.cli.history.read],strlen(_uart_struc
+             -t.cli.history.buff[_uart_struct.cli.history.read]));
+ 773   2                      _uart_struct.write  = _uart_struct.buff + strlen(_uart_struct.buff);  //update write pointer
+ 774   2                      SET_BIT(IE,4);     // Enable UART0 interrupts
+ 775   2      
+ 776   2                      _uart_struct.read   = _uart_struct.buff + strlen(_uart_struct.buff);  //update read pointer
+ 777   2                      _uart_struct.len    = strlen(_uart_struct.buff);
+ 778   2                      _uart_struct.cursor = strlen(_uart_struct.buff);
+ 779   2      
+ 780   2                      if(_uart_struct.cli.history.read == 0x0)
+ 781   2                      {
+ 782   3                              if( _uart_struct.cli.history.full)
+ 783   3                              {
+ 784   4                                      _uart_struct.cli.history.read = CLI_HISTORY_CMD_NUM;
+ 785   4                              }
+C51 COMPILER V9.53.0.0   LIB_C51_UART                                                      07/23/2019 17:10:27 PAGE 14  
+
+ 786   3                              else
+ 787   3                              {
+ 788   4                                      _uart_struct.cli.history.read = _uart_struct.cli.history.write;
+ 789   4                              }
+ 790   3                      }
+ 791   2              }
+ 792   1      }
+ 793          
+ 794          PARAM_INFO_T  *uart_get_param_info(void)
+ 795          {
+ 796   1              return &_uart_struct.cli.param;
+ 797   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   3327    ----
+   CONSTANT SIZE    =    745    ----
+   XDATA SIZE       =   1619     885
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----       2
+   BIT SIZE         =      1       2
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

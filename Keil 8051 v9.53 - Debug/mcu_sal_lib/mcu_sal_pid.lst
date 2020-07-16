@@ -1,0 +1,178 @@
+C51 COMPILER V9.53.0.0   MCU_SAL_PID                                                       10/14/2019 10:20:40 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE MCU_SAL_PID
+OBJECT MODULE PLACED IN .\mcu_sal_lib\mcu_sal_pid.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\mcu_sal_lib\mcu_sal_pid.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOA
+                    -TFUZZY(3) OPTIMIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(D:/Work Project/SingleChipWorkSpaveNew/C
+                    -51_UBOOT/inc;D:/Work Project/SingleChipWorkSpaveNew/C51_UBOOT/mcu_sal_lib;C:/SiliconLabs/SimplicityStudio/v3/developer/s
+                    -dks/si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc;
+                    -C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/develope
+                    -r/sdks/si8051/v3//Lib/efm8lb1;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:/SiliconLabs
+                    -/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/peripheral_driver/inc) PRINT(.\mcu_sal_lib\mcu_sal_pid.lst
+                    -) COND PAGEWIDTH(120) PAGELENGTH(65) OBJECT(.\mcu_sal_lib\mcu_sal_pid.OBJ)
+
+line level    source
+
+   1          #include "mcu_sal.h"
+   2          
+   3          #ifdef MCU_PID_MODULE_ENABLED
+   4          
+   5          static PID_STRUCT_T *_pid_struct = NULL;
+   6          
+   7          /*
+   8           * 因为PID算法中有积分运算，一直都在累加
+   9           * 所以必须要考虑积分的和清零的动作，当达
+  10           * 到稳定以后，就可以将相关的参数信息清零
+  11           * 了，需要注意的是这里的"稳定"是需要根据
+  12           * 实际硬件来衡量的，也就是最小误差，例如如果期望是1500mv，
+  13           * 允许误差在1mv以内，那么1501mv和1499mv都是可以定义为"稳定的"
+  14           * 相当于重新开始进行PID运算
+  15           */
+  16          static void pid_calculate(void)
+  17          {
+  18   1              int32_t  error = 0, error2 = 0;
+  19   1      
+  20   1              error = (int32_t)_pid_struct->para.targetValue - (int32_t)_pid_struct->inputValue;  //notice there must b
+             -e type conversion
+  21   1      
+  22   1              if(_pid_struct->balance)
+  23   1              {
+  24   2                      _pid_struct->sumError = _pid_struct->balanceSumError + error;
+  25   2              }
+  26   1              else
+  27   1              {
+  28   2                      _pid_struct->sumError += error;
+  29   2              }
+  30   1      
+  31   1              if(_pid_struct->prevError != 0x0)  //indicate not the first run here
+  32   1              {
+  33   2                      error2 = error - _pid_struct->prevError;
+  34   2              }
+  35   1              else
+  36   1              {
+  37   2                      error2 = 0;
+  38   2              }
+  39   1      
+  40   1              _pid_struct->prevError = error;
+  41   1      
+  42   1              _pid_struct->outputValue = PID_BALANCE_POINT +
+  43   1          (uint16_t)(_pid_struct->para.kp * (float)error
+  44   1                           + _pid_struct->para.ti * (float)_pid_struct->sumError
+  45   1                           + _pid_struct->para.td * (float)error2);
+  46   1      }
+  47          
+C51 COMPILER V9.53.0.0   MCU_SAL_PID                                                       10/14/2019 10:20:40 PAGE 2   
+
+  48          static void _pid_deinit()
+  49          {
+  50   1              _pid_struct->balance             = 0;
+  51   1              _pid_struct->inputValue          = 0;
+  52   1              _pid_struct->outputValue         = 0;
+  53   1              _pid_struct->prevError           = 0;
+  54   1              _pid_struct->sumError            = 0;
+  55   1              _pid_struct->balanceSumError = 0;
+  56   1      }
+  57          
+  58          void pid_conf(PID_CONF_PARA *pid_conf)
+  59          {
+  60   1          ASSERT(pid_conf);
+  61   1      
+  62   1              _pid_struct->para.kp                    = pid_conf->kp / PID_CONF_PARA_GAIN;
+  63   1              _pid_struct->para.ti                    = pid_conf->ti / PID_CONF_PARA_GAIN;
+  64   1              _pid_struct->para.td                    = pid_conf->td / PID_CONF_PARA_GAIN;
+  65   1              _pid_struct->para.pid_en                = pid_conf->pid_en;
+  66   1              _pid_struct->para.targetValue   = pid_conf->targetValue;
+  67   1      }
+  68          
+  69          void pid_init(PID_STRUCT_T *pid)
+  70          {
+  71   1          ASSERT(pid);
+  72   1      
+  73   1          _pid_struct = pid;
+  74   1      
+  75   1              memset(pid, 0, sizeof(PID_STRUCT_T));
+  76   1      
+  77   1              _pid_struct->para.kp                    = 0.3;
+  78   1              _pid_struct->para.ti                    = 0.01;
+  79   1              _pid_struct->para.td                    = 0.1;
+  80   1              _pid_struct->para.pid_en                = 1;
+  81   1              _pid_struct->para.targetValue   = 0;
+  82   1              _pid_struct->inputValue                 = PID_BALANCE_POINT;
+  83   1              _pid_struct->balance                    = 0;
+  84   1      }
+  85          
+  86          uint16_t pid_get_cal_val(uint16_t inputValue)
+  87          {
+  88   1          static uint8_t num = 0;
+  89   1      
+  90   1          if(_pid_struct->para.pid_en)
+  91   1          {
+  92   2                      _pid_struct->inputValue = inputValue;
+  93   2      
+  94   2                      if(abs(_pid_struct->para.targetValue - _pid_struct->inputValue) < PID_OUTPUT_ERROR)
+  95   2                      {
+  96   3                              if(_pid_struct->balance == false)  //indicate from no balance state change to balance state
+  97   3                              {
+  98   4                                      _pid_struct->balance = true;
+  99   4                                      _pid_struct->balanceSumError = _pid_struct->sumError;
+ 100   4                                      _pid_struct->sumError = 0;
+ 101   4                              }
+ 102   3                      }
+ 103   2                      else
+ 104   2                      {
+ 105   3                              if(_pid_struct->balance)  //indicate from balance state change to no balance state
+ 106   3                              {
+ 107   4                                      _pid_struct->balance  = false;
+ 108   4                                      _pid_struct->sumError = _pid_struct->balanceSumError;
+ 109   4                              }
+ 110   3      
+C51 COMPILER V9.53.0.0   MCU_SAL_PID                                                       10/14/2019 10:20:40 PAGE 3   
+
+ 111   3                              if(abs(_pid_struct->para.targetValue - _pid_struct->inputValue) > PID_OUTPUT_MAX_ERROR)
+ 112   3                              {
+ 113   4                                      num ++;
+ 114   4                                      if(num > 20)
+ 115   4                                      {
+ 116   5                                              _pid_deinit();
+ 117   5                                              num = 0;
+ 118   5                                      }
+ 119   4                              }
+ 120   3                              else
+ 121   3                              {
+ 122   4                                      num = 0;
+ 123   4                              }
+ 124   3                      }
+ 125   2      
+ 126   2                      pid_calculate();
+ 127   2                      return _pid_struct->outputValue;
+ 128   2          }
+ 129   1      
+ 130   1          return RET_FAILED;
+ 131   1      }
+ 132          
+ 133          uint16_t pid_get_input(void)
+ 134          {
+ 135   1              return _pid_struct->inputValue;
+ 136   1      }
+ 137          
+ 138          #endif
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1331    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      4      14
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

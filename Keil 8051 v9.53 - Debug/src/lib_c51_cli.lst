@@ -1,0 +1,277 @@
+C51 COMPILER V9.53.0.0   LIB_C51_CLI                                                       07/12/2019 11:08:35 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE LIB_C51_CLI
+OBJECT MODULE PLACED IN .\src\lib_c51_cli.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\emptyProject\src\lib_c51_cli.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOATFUZZ
+                    -Y(3) OPTIMIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(C:/SiliconLabs/SimplicityStudio/v3/developer/
+                    -sdks/si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:/
+                    -SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc) PRINT(.\src\lib_c51_cli.lst) COND PAGEWIDT
+                    -H(120) PAGELENGTH(65) OBJECT(.\src\lib_c51_cli.OBJ)
+
+line level    source
+
+   1          #include <string.h>
+   2          #include <stdio.h>
+   3          #include <stdlib.h>
+   4          #include <stdarg.h>  //for va_list ap
+   5          #include "lib_c51_cli.h"
+   6          #include "Efm8lb12_timer.h"
+   7          #include "lib_c51_uart.h"
+   8          #if 1
+   9          
+  10          CLI_STRUCT_T              _cli_struct;
+  11          REGISTER_CMD_STRUCT_T _register_cmd_struct;
+  12          
+  13          static void _cli_init()
+  14          {
+  15   1              memset((void)&_cli_struct, 0, sizeof(_cli_struct));
+  16   1      }
+  17          
+  18          static void _cli_deinit()
+  19          {
+  20   1              memset(_cli_struct.argv, 0, sizeof(_cli_struct.argv));
+  21   1              _cli_struct.argc = 0;
+  22   1      }
+  23          
+  24          static void _cli_format_cmd(uint8_t *str)
+  25          {
+  26   1              uint8_t  *str_sect = NULL, i = 0;
+  27   1      
+  28   1              str_sect = strtok(str," ");
+  29   1              while(str_sect)
+  30   1              {
+  31   2                      strcpy(_cli_struct.argv[_cli_struct.argc ++], str_sect);
+  32   2                      str_sect = strtok(NULL," ");
+  33   2              };
+  34   1      
+  35   1              for(i = 0; i < _cli_struct.argc; i++)
+  36   1              {
+  37   2                      UART0_put_string("\n");
+  38   2                      UART0_put_string(_cli_struct.argv[i]);
+  39   2              }
+  40   1      }
+  41          
+  42          static bool _cli_find_history_cmd(uint8_t *str)
+  43          {
+  44   1              uint8_t i = 0;
+  45   1      
+  46   1              for (i = 0; i < _cli_struct.history.index; i ++)
+  47   1              {
+  48   2                      if(!strcmp(_cli_struct.history.buff[i], str))
+  49   2                      {
+  50   3                              return true;
+  51   3                      }
+C51 COMPILER V9.53.0.0   LIB_C51_CLI                                                       07/12/2019 11:08:35 PAGE 2   
+
+  52   2              }
+  53   1      
+  54   1              return false;
+  55   1      }
+  56          
+  57          static void _cli_save_history_cmd(uint8_t *str)
+  58          {
+  59   1              if(_cli_find_history_cmd(str))
+  60   1              {
+  61   2                      return;
+  62   2              }
+  63   1              else
+  64   1              {
+  65   2                      memset(_cli_struct.history.buff[_cli_struct.history.index], 0, sizeof(_cli_struct.history.buff[0]));
+  66   2                      strcpy(_cli_struct.history.buff[_cli_struct.history.index ++],str);
+  67   2              }
+  68   1      }
+  69          
+  70          
+  71          static bool _cli_special_char_match(uint8_t *str)
+  72          {
+  73   1              uint8_t *p = NULL,i = 0;
+  74   1      
+  75   1              for(p = str; *p != '\0'; p++)
+  76   1              {
+  77   2                      if(*p == '&' || *p == '#')
+  78   2                      {
+  79   3                              return true;
+  80   3                      }
+  81   2              }
+  82   1      
+  83   1              return false;
+  84   1      }
+  85          
+  86          static bool _cli_string_match(uint8_t *src)
+  87          {
+  88   1              uint8_t *str_sect = strtok(src," "), i = 0;
+  89   1      
+  90   1              while(str_sect)
+  91   1              {
+  92   2                      if(!strcmp(str_sect, _cli_struct.argv[i]))  //if match success
+  93   2                      {
+  94   3                              str_sect = strtok(NULL," ");  //获取下一个字符串段
+  95   3                              i ++;
+  96   3                      }
+  97   2                      else
+  98   2                      {
+  99   3                              if(_cli_special_char_match(str_sect))  //如果有特殊字符&或者#表示匹配成功
+ 100   3                              {
+ 101   4                                      str_sect = strtok(NULL," ");
+ 102   4                                      i ++;
+ 103   4                              }
+ 104   3                              else
+ 105   3                              {
+ 106   4                                      return false;
+ 107   4                              }
+ 108   3                      }
+ 109   2              }
+ 110   1      
+ 111   1              return true;
+ 112   1      }
+ 113          
+ 114          static REGISTER_CMD_T* _cli_cmd_match()
+C51 COMPILER V9.53.0.0   LIB_C51_CLI                                                       07/12/2019 11:08:35 PAGE 3   
+
+ 115          {
+ 116   1              REGISTER_CMD_T *command = (REGISTER_CMD_T *)&_register_cmd_struct.command[0];
+ 117   1              uint8_t *name = NULL;
+ 118   1              uint8_t i = 0;
+ 119   1      
+ 120   1              do
+ 121   1              {
+ 122   2                      name = command->name;
+ 123   2                      if(_cli_string_match(name))
+ 124   2                      {
+ 125   3                              return command;
+ 126   3                      }
+ 127   2              }while(++ command->name);
+ 128   1      
+ 129   1              return NULL;
+ 130   1      }
+ 131          
+ 132          void CLI_run(uint8_t *str)
+ 133          {
+ 134   1              HAL_StatusTypeDef ret = HAL_OK;
+ 135   1              REGISTER_CMD_T *command = NULL;
+ 136   1      
+ 137   1              UART0_put_string(str);
+ 138   1      
+ 139   1              if(str == NULL)
+ 140   1              {
+ 141   2                      UART0_put_string("111");
+ 142   2                      return;
+ 143   2              }
+ 144   1      
+ 145   1              UART0_put_string("222");
+ 146   1              UART0_put_string(str);
+ 147   1      
+ 148   1              UART0_put_string("333");
+ 149   1      
+ 150   1              _cli_save_history_cmd(str);
+ 151   1              _cli_format_cmd(str);
+ 152   1      
+ 153   1              UART0_put_string("444");
+ 154   1      
+ 155   1              command = _cli_cmd_match();
+ 156   1      
+ 157   1              UART0_put_string("555");
+ 158   1              if(command != NULL)
+ 159   1              {
+ 160   2                      UART0_put_string("666");
+ 161   2                      ret = command->func();
+ 162   2                      UART0_put_string("777");
+ 163   2                      _cli_deinit();
+ 164   2                      if(HAL_OK != ret)
+ 165   2                      {
+ 166   3                              if(HAL_NO_PERMISSION == ret)
+ 167   3                              {
+ 168   4                                      UART0_put_string("\r\nPlease write passward '0x8f 0x9e 0xad 0xec' at first");
+ 169   4                              }
+ 170   3      
+ 171   3                              UART0_put_string("\r\n---ATECMDRESULT--- FAIL");
+ 172   3                      }
+ 173   2                      else
+ 174   2                      {
+ 175   3                              UART0_put_string("\r\n---ATECMDRESULT--- OK");
+ 176   3                      }
+ 177   2              }
+C51 COMPILER V9.53.0.0   LIB_C51_CLI                                                       07/12/2019 11:08:35 PAGE 4   
+
+ 178   1              else
+ 179   1              {
+ 180   2                      UART0_put_string("\r\nCommand not recognised.  Enter 'help' to view a list of available commands.");
+ 181   2              }
+ 182   1      
+ 183   1      }
+ 184          
+ 185          static void _cli_show_cmd_help()
+ 186          {
+ 187   1              REGISTER_CMD_T *command = &_register_cmd_struct.command[0];
+ 188   1      
+ 189   1              do
+ 190   1              {
+ 191   2                      UART0_put_string("\r\n        ");
+ 192   2                      UART0_put_string(command ->name);
+ 193   2              }while((++command) ->name);
+ 194   1      }
+ 195          
+ 196          void  CLI_register_cmd(uint8_t *name,FUNCTION func)   //注册命令处理函数
+ 197          {
+ 198   1              static uint16_t num = 0;
+ 199   1      
+ 200   1              if(num < REGISTER_CMD_NUM)
+ 201   1              {
+ 202   2                      _register_cmd_struct.command[num].name   = name;
+ 203   2                      _register_cmd_struct.command[num].func   = func;
+ 204   2                      num ++;
+ 205   2              }
+ 206   1      }
+ 207          
+ 208          void CLI_read_history_cmd()
+ 209          {
+ 210   1              static uint8_t num = 0;
+ 211   1      
+ 212   1              if(!num)
+ 213   1              {
+ 214   2                      num = _cli_struct.history.index;
+ 215   2              }
+ 216   1      
+ 217   1              if(num > 0)
+ 218   1              {
+ 219   2                      UART0_delete_string();
+ 220   2                      UART0_put_string(_cli_struct.history.buff[num --]);
+ 221   2      
+ 222   2                      if(num == 0x0)
+ 223   2                      {
+ 224   3                              num = _cli_struct.history.index;
+ 225   3                      }
+ 226   2              }
+ 227   1      }
+ 228          
+ 229          
+ 230          void CLI_init()
+ 231          {
+ 232   1              _cli_init();
+ 233   1      
+ 234   1              CLI_register_cmd("help" \
+ 235   1                                                ,_cli_show_cmd_help);
+ 236   1      }
+ 237          #endif
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+C51 COMPILER V9.53.0.0   LIB_C51_CLI                                                       07/12/2019 11:08:35 PAGE 5   
+
+   CODE SIZE        =   1213    ----
+   CONSTANT SIZE    =    231    ----
+   XDATA SIZE       =   1505      45
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

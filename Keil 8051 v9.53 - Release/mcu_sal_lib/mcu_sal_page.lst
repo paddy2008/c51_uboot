@@ -1,0 +1,147 @@
+C51 COMPILER V9.53.0.0   MCU_SAL_PAGE                                                      10/09/2019 13:50:36 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE MCU_SAL_PAGE
+OBJECT MODULE PLACED IN .\mcu_sal_lib\mcu_sal_page.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\mcu_sal_lib\mcu_sal_page.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLO
+                    -ATFUZZY(3) OPTIMIZE(9,SPEED) DEFINE(NDEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(D:/Work Project/SingleChipWorkSpaveNew
+                    -/C51_UBOOT/inc;D:/Work Project/SingleChipWorkSpaveNew/C51_UBOOT/mcu_sal_lib;C:/SiliconLabs/SimplicityStudio/v3/developer
+                    -/sdks/si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:
+                    -/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc;C:/SiliconLabs/SimplicityStudio/v3/develop
+                    -er/sdks/si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/periphera
+                    -l_driver/inc) REGFILE(C51_UBOOT.ORC) PRINT(.\mcu_sal_lib\mcu_sal_page.lst) COND PAGEWIDTH(120) PAGELENGTH(65) OBJECT(.\m
+                    -cu_sal_lib\mcu_sal_page.OBJ)
+
+line level    source
+
+   1          #include "mcu_sal.h"
+   2          
+   3          #ifdef MCU_APP_PAGE_MODULE_ENABLED
+   4          
+   5          static PAGES_LIST_T *page_list = NULL;
+   6          
+   7          void app_page_list_init(PAGES_LIST_T *list)
+   8          {
+   9   1              uint8_t  i = 0;
+  10   1      
+  11   1              ASSERT(list);
+  12   1      
+  13   1              page_list = list;
+  14   1      
+  15   1              for(i = 0; i < APP_PAGE_MAX_NUM; i++)
+  16   1              {
+  17   2                      page_list->pages[i] = NULL;
+  18   2              }
+  19   1              page_list->num = 0;
+  20   1      }
+  21          
+  22          /*
+  23           * 该函数的作用仅仅是将当前分配的page加入到page_list中
+  24           * 并未对当前的page做任何初始化动作，如果要做初始化，必须将对应的
+  25           * 参数传入进来，这样函数的参数就高达3,4个，参数太多，如果结构体增加
+  26           * 成员，那么参数会越变越多，扩展性降低，所以page的初始化在该函数外面
+  27           * 做处理
+  28           */
+  29          void app_page_add(APP_PAGE_STRUCT_T *page)
+  30          {
+  31   1              ASSERT(page);
+  32   1              ASSERT(page_list);
+  33   1      
+  34   1              memset((void *)&page->ram[0], 0 , APP_PAGE_RAM_SIZE);
+  35   1      
+  36   1              if(page_list->num < APP_PAGE_MAX_NUM)
+  37   1              {
+  38   2                      page_list->pages[page_list->num] = page;
+  39   2              }
+  40   1              else
+  41   1              {
+  42   2                      //lib_log("\r\n app_page_add failed");
+  43   2                      return;
+  44   2              }
+  45   1      
+  46   1              page_list->num ++;
+  47   1      }
+  48          
+C51 COMPILER V9.53.0.0   MCU_SAL_PAGE                                                      10/09/2019 13:50:36 PAGE 2   
+
+  49          static uint8_t _app_page_get_index(uint8_t page_num)
+  50          {
+  51   1              uint8_t i = 0;
+  52   1      
+  53   1              for(i = 0; i < page_list->num; i ++)
+  54   1              {
+  55   2                      if(page_list->pages[i]->num == page_num)
+  56   2                      {
+  57   3                              return i;
+  58   3                      }
+  59   2              }
+  60   1              //lib_log("\r\n _app_page_get_index failed");
+  61   1              return RET_FAILED;
+  62   1      }
+  63          
+  64          uint8_t app_page_read_byte(uint8_t page_num, const uint8_t offset)
+  65          {
+  66   1          uint8_t ret = 0, index = 0;
+  67   1      
+  68   1              RE_ASSERT(page_list);
+  69   1      
+  70   1          if(RET_FAILED != (index = _app_page_get_index(page_num)))
+  71   1          {
+  72   2              return page_list->pages[index]->ram[OFFSET_INDEX(offset)];
+  73   2          }
+  74   1      
+  75   1          //lib_log("\r\n app_page_read_byte failed");
+  76   1      
+  77   1          return RET_FAILED;
+  78   1      }
+  79          
+  80          APP_PAGE_STRUCT_T * app_page_get_base_addr(uint8_t page_num)
+  81          {
+  82   1              uint8_t ret = 0, index = 0;
+  83   1      
+  84   1              RE_ASSERT(page_list);
+  85   1      
+  86   1              if(RET_FAILED != (index = _app_page_get_index(page_num)))
+  87   1              {
+  88   2                      return page_list->pages[index];
+  89   2              }
+  90   1      
+  91   1              //lib_log("\r\n app_page_get_base_addr failed");
+  92   1      
+  93   1              return NULL;
+  94   1      }
+  95          
+  96          void app_page_write_byte(uint8_t page_num, const uint8_t offset, uint8_t value)
+  97          {
+  98   1          uint8_t ret = 0, index = 0;
+  99   1      
+ 100   1              ASSERT(page_list);
+ 101   1      
+ 102   1              if(RET_FAILED != (index = _app_page_get_index(page_num)))
+ 103   1              {
+ 104   2                      page_list->pages[index]->ram[OFFSET_INDEX(offset)] = value;
+ 105   2              }
+ 106   1      }
+ 107          
+ 108          #endif
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+C51 COMPILER V9.53.0.0   MCU_SAL_PAGE                                                      10/09/2019 13:50:36 PAGE 3   
+
+   CODE SIZE        =    386    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      3      10
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

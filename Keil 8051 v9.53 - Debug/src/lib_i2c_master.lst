@@ -1,0 +1,716 @@
+C51 COMPILER V9.53.0.0   LIB_I2C_MASTER                                                    07/25/2019 13:43:49 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE LIB_I2C_MASTER
+OBJECT MODULE PLACED IN .\src\lib_i2c_master.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\src\lib_i2c_master.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOATFUZZ
+                    -Y(3) OPTIMIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(C:/SiliconLabs/SimplicityStudio/v3/developer/
+                    -sdks/si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc
+                    -;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/develop
+                    -er/sdks/si8051/v3//Lib/efm8lb1;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1) PRINT(.\src\
+                    -lib_i2c_master.lst) COND PAGEWIDTH(120) PAGELENGTH(65) OBJECT(.\src\lib_i2c_master.OBJ)
+
+line level    source
+
+   1          #include <string.h>
+   2          #include "lib_c51_timer.h"
+   3          #include "lib_macro.h"
+   4          #include "lib_i2c_master.h"
+   5          #include "Efm8lb12_i2c_master.h"
+   6          #include "Efm8lb12_uart.h"
+   7          
+   8          #if I2C_MASTER_MODE == 0x0
+              
+              static I2C_MASTER_IMITATE_STRUCT_T _i2c_master_imitate_struct;
+              
+              static void _i2c_master_imitate_struct_init(void)
+              {
+                      _i2c_master_imitate_struct.readBit   = 0;
+                      _i2c_master_imitate_struct.widthFlag = false;
+                      _i2c_master_imitate_struct.freq          = I2C_MASTER_DEF_FREQUENCY;
+                      _i2c_master_imitate_struct.half          = I2C_MASTER_HAFT_CYCLE;
+              }
+              
+              static void _i2c_master_update_width_flag(uint8_t baseAddr)
+              {
+                      if(baseAddr == I2C_SLAVE_DEV1_ADDR || baseAddr == I2C_SLAVE_DEV2_ADDR || baseAddr == I2C_SLAVE_DEV3_ADDR)
+             - //12bit offsetaddr
+                      {
+                               _i2c_master_imitate_struct.widthFlag = true;
+                      }
+                      else
+                      {
+                               _i2c_master_imitate_struct.widthFlag = false;
+                      }
+              }
+              
+              /*
+               * ·¢ËÍI2C Start²¨ÐÎ
+               */
+              static uint8_t _i2c_master_imitate_start(void)
+              {
+                      // ¸ù¾ÝSCL SDAµÄ²»Í¬³õÊ¼×´Ì¬£¬½«SCL SDAµÄÒý½ÅÀ­¸ßÎª1£¬×¼±¸ºÃ£¬²¢±ÜÃâ³öÏÖSTOPµÄ×´Ì¬
+                      if (SCL == 1)
+                      {
+                              if (SDA == 0)
+                              {
+                                      SCL = 0;
+                                      timer5_delay_us(RISE_TIME_DELAY);
+                                      SDA = 1;   //ÔÚ¸Ä±äSDAµÄÖµµÄÊ±ºò£¬±ØÐëÒªÏÈ½«SCLÀ­µÍ£¬·ñÔò»áÈÏÎªÕâ¸öÊý¾ÝÊ±ÓÐÐ§µÄ
+                                      timer5_delay_us(RISE_TIME_DELAY);
+                                      SCL = 1;
+                              }
+                      }
+                      else
+C51 COMPILER V9.53.0.0   LIB_I2C_MASTER                                                    07/25/2019 13:43:49 PAGE 2   
+
+                      {
+                              if (SDA == 1)                  // Ê±ÖÓÏßÎªµÍ£¬Êý¾ÝÏßÎª¸ß
+                              {
+                                      SCL = 1;
+                              }
+                              else                           // Ê±ÖÓÏßÎªµÍ£¬Êý¾ÝÏßÎªµÍ
+                              {
+                                      SDA = 1;
+                                      timer5_delay_us(RISE_TIME_DELAY);
+                                      SCL = 1;
+                              }
+                      }
+              
+                      timer5_delay_us(RISE_TIME_DELAY);
+              
+                      if ((SCL == 1) && (SDA == 1))
+                      {
+                              timer5_delay_us(I2C_MASTER_HOLD_TIME);
+                              SDA = 0;
+                              timer5_delay_us(I2C_MASTER_HOLD_TIME);
+                              SCL = 0;                                         // À­µÍSCLÊ±ÖÓÏß
+                              timer5_delay_us(I2C_MASTER_DELAY);               // ÎªÁË±£³ÖSCLÎªµÍµçÆ½µÄÊ±¼äÔ¼Îª°ëÖÜÆÚ
+                              return RET_OK;
+                      }
+              
+                      return RET_FAILED;
+              }
+              
+              /*
+               * ·¢ËÍI2C Stop²¨ÐÎ
+               */
+              static uint8_t _i2c_master_imitate_stop(void)
+              {
+                      // ¸ù¾ÝSCL SDAµÄ²»Í¬³õÊ¼×´Ì¬£¬½«SCL=1 SDA=0£¬Í¬Ê±±ÜÃâ³öÏÖSTOPµÄ×´Ì¬
+                      if (SCL == 0)
+                      {
+                              if (SDA == 0)                  // SCL=0 SDA=0
+                              {
+                                      SCL = 1;
+                              }
+                              else                                      // SCL=0 SDA=1
+                              {
+                                      SDA = 0;
+                                      timer5_delay_us(RISE_TIME_DELAY);
+                                      SCL = 1;
+                              }
+                      }
+                      else
+                      {
+                              if (SDA == 1)                 // SCL=1 SDA=1
+                              {
+                                      SCL = 0;
+                                      timer5_delay_us(RISE_TIME_DELAY);
+                                      SDA = 0;
+                                      timer5_delay_us(RISE_TIME_DELAY);
+                                      SCL = 1;
+                              }
+                      }
+              
+                      timer5_delay_us(RISE_TIME_DELAY);        // µÈ´ýSCL SDAÎÈ¶¨
+              
+                      if ((SCL == 1) && (SDA == 0))
+                      {
+C51 COMPILER V9.53.0.0   LIB_I2C_MASTER                                                    07/25/2019 13:43:49 PAGE 3   
+
+                              timer5_delay_us(I2C_MASTER_HOLD_TIME);
+                              SDA = 1;
+                              timer5_delay_us(I2C_MASTER_HOLD_TIME);
+              
+                              if ((SCL == 1) && (SDA == 1))
+                          {
+                              return RET_OK; // SCL SDA¾ùÎª¸ß Õý³£
+                          }
+                          else
+                          {
+                             return RET_FAILED; // SCL SDAÎÞ·¨´ïµ½ÖÕÖ¹×´Ì¬£¬±¨¸æÒì³£
+                          }
+                      }
+              
+                      return RET_FAILED; // SCL SDAÎÞ·¨Éè¶¨Îª³õÊ¼×´Ì¬£¬±¨¸æÒì³£
+              }
+              
+              
+              /*
+               * i2c reset
+               *
+               */
+              static void _i2c_master_imitate_reset(void)
+              {
+                      while(!SDA)  //if SDA is pull low by i2c slave
+                      {
+                         SCL = 1;
+              
+                         timer5_delay_us(RISE_TIME_DELAY);  //·¢ËÍÊ±ÖÓ£¬ÈÃi2c slaveÊÍ·Å
+              
+                         SCL = 0;
+              
+                         timer5_delay_us(RISE_TIME_DELAY);
+                      }
+              
+                      _i2c_master_imitate_stop();  //·¢ËÍstop signal, ½áÊøÕâ´ÎÍ¨ÐÅ
+              }
+              
+              /*
+               *  ³õÊ¼»¯I2C×ÜÏß
+               */
+              static uint8_t _i2c_master_imitate_init(void)
+              {
+                      _i2c_master_imitate_reset();
+              
+                      SCL = 0;
+                      SDA = 0;
+              
+                      timer5_delay_us(RISE_TIME_DELAY);
+              
+                      SCL = 1;
+                      SDA = 1;
+              
+                      timer5_delay_us(RISE_TIME_DELAY);            // µÈ´ýÊ±ÖÓÉÏÉýÑØÍê³É
+              
+                      if ((SCL == 1) && (SDA == 1))
+                      {
+                              return RET_OK;                                // ³õÊ¼»¯³É¹¦
+                      }
+              
+                      printf("Bus status failed:SDA = %bu, SCL = %bu", (SDA)? 1: 0, (SCL)? 1: 0);
+                      return RET_FAILED;                                    // ¹Ü½Å×´Ì¬²»¶Ô£¬³õÊ¼»¯Òì³£
+              }
+C51 COMPILER V9.53.0.0   LIB_I2C_MASTER                                                    07/25/2019 13:43:49 PAGE 4   
+
+              
+              
+              /*
+               * ·¢ËÍÒ»¸öbitÊý¾Ýµ½×ÜÏßÉÏ
+               */
+              # if 0
+              static uint8_t _i2c_master_imitate_write_bit(uint8_t value)
+              {
+                      uint8_t timercount =  SCL_STRETCH_TIMEOUT;              // ÉèÖÃ³¬Ê±µÈ´ýÊ±¼ä£¬Ê±ÖÓÖÜÆÚ£º8
+                      uint16_t cnt = 0;
+              
+                      SDA = value;                                     // Êä³öÒ»¸öbitÊý¾Ýµ½SDAÊý¾ÝÏß
+              
+                      timer5_delay_us(RISE_TIME_DELAY);              // ÒªÇóµÈ´ýÊ±¼ä´óÓÚ2us
+              
+                      if (SDA != value)                              // ¼ì²éSDAÊÇ·ñÓëÄ¿±êÖµÒ»ÖÂ£¬²»Ò»ÖÂÔò±¨´í
+                      {
+                              return RET_FAILED;
+                      }
+              
+                      SCL = 1;                                      // À­¸ßÊ±ÖÓÏß
+              
+                      timer5_delay_us(RISE_TIME_DELAY);              // ÒªÇóµÈ´ýÊ±¼ä´óÓÚ2us
+              
+                      while(!SCL)                                    // ¼ì²éSCL×´Ì¬ÊÇ·ñÎª¸ß£¬²»Îª¸ßÔòµÈ´ý£¬²»Ö´ÐÐwhile£¬Ê±ÖÓÖÜÆ
+             -Ú£º3
+                      {
+                              timer5_delay_us(I2C_MASTER_HAFT_CYCLE);
+              
+                              if (timercount-- == 0)                    // ³¬¹ý8¸öI2C×ÜÏßÖÜÆÚSCLÃ»ÓÐ»Ö¸´£¬Ôò±¨´í
+                              {
+                               return RET_FAILED;
+                              }
+                      }
+              
+                      timer5_delay_us(I2C_MASTER_DELAY);              // ÑÓÊ±£¬¿ØÖÆ´«ËÍËÙÂÊ
+              
+                      SCL = 0;                                        // À­µÍSCLÊ±ÖÓÏß
+              
+                      timer5_delay_us((I2C_MASTER_DELAY > FUNC_CALL_ERROR_TIME) ? (I2C_MASTER_DELAY - FUNC_CALL_ERROR_TIME) : 0
+             -);     // ÑÓÊ±£¬¿ØÖÆ´«ËÍËÙÂÊ
+              
+                      return RET_OK;                                  // º¯ÊýÖ´ÐÐÍê
+              }
+              #endif
+              
+              /*
+               * ·¢ËÍÒ»¸öbitÊý¾Ýµ½×ÜÏßÉÏµÄºê¶¨Òå
+               * ·¢ËÍbitÊý¾Ý×îºÃÓÃºê¶¨Òå£¬ÒòÎªº¯Êýµ÷ÓÃ»áÉæ¼°µ½²ÎÊýµÄÑ¹Õ»ÈëÕ»£¬ÒÔ¼°º¯Êý·µ»ØÖµ£¬
+               * ÕâÐ©Ö¸ÁîµÄÀÛ¼ÆºÄÊ±¹À¼ÆÔÚ1¸öus×óÓÒ£¬±Ï¾¹ÕâÀïµÄÊ±Ðò¶¼ÊÇ¾«È·µ½us¼¶±ð£¬Æ«²îÒ»¸ö
+               * us£¬Êµ¼ÊµÄÆµÂÊ¶¼ÓÐ½Ï´ó±ä»¯
+               * ×¢ÒâÕâ¾ä´úÂëwhile(!SCL);
+               * ÕâÀïÊ¹ÓÃÑÓÊ±º¯ÊýÀ´ÑÓÊ±²¢²»×¼È·£¬ÒòÎª¼ÙÉèÕâÀïÑÓÊ±1us£¬µ«ÊÇÊµ¼ÊÉÏÓ²¼þ´ïµ½¸ßµçÆ½Õâ¸ö
+               * Ê±¼äÊÇÓÐÓ²¼þ¾ö¶¨µÄ£¬ÓÐµÄÊÇ500ns,ÓÐµÄÊÇ1000ns,Èç¹ûÊµ¼ÊÐèÒª800nsÀ­¸ß£¬µ«ÊÇ
+               * ÎÒÃÇÑÓÊ±1000ns£¬ÄÇÃ´¶à³öµÄ200ns¾Í±ä³ÉÁË¸ßµçÆ½µÄ±£³ÖÊ±¼äÁË£¬´Ó¶øµ¼ÖÂÖÜÆÚ²»×¼£¬
+               * ÁíÍâÈç¹ûÕâÀïSCL±»À­¸ßÁË£¬ÄÇÃ´SDA¿Ï¶¨¸³ÖµÍê³ÉÁË£¬ÒòÎªËüÔÚSCLÀ­¸ßÖ®Ç°
+               * timer5_delay_us(I2C_MASTER_HAFT_CYCLE - 1)ÕâÀï¼õÒ»µÄÄ¿µÄÊÇÕâ¸öºêµ÷ÓÃÍê³ÉºóforÑ­»·ÖÐÖ¸ÁîµÄºÄÊ±Ê±¼ä£¬Õâ¸ö
+             -µÄµ½µ×¼õ¶àÉÙÊ±¼äÎó²î¿ÉÒÔÍ¨¹ý²âÁ¿µÃµ½
+               */
+              #define WRITE_BIT(value) \
+              {                        \
+                      SDA = value; \
+                      SCL = 1;         \
+C51 COMPILER V9.53.0.0   LIB_I2C_MASTER                                                    07/25/2019 13:43:49 PAGE 5   
+
+                      while(!SCL); \
+                      timer5_delay_us(_i2c_master_imitate_struct.half); \
+                      SCL = 0;        \
+                      while(SCL);     \
+                      timer5_delay_us((_i2c_master_imitate_struct.half > 1) ? (_i2c_master_imitate_struct.half - 1) : 0); \
+              }
+              
+              /*
+               * ½ÓÊÕÒ»¸öbitÊý¾Ý
+               */
+              #if 0
+              static uint8_t _i2c_master_imitate_read_bit(uint8_t *value)
+              {
+                      uint8_t timercount = SCL_STRETCH_TIMEOUT;   // ÉèÖÃ³¬Ê±µÈ´ýÊ±¼ä£¬Ê±ÖÓÖÜÆÚ£º8
+              
+                      SDA = 1;                                // ½«SDAÉè¶¨Îª¸ß×èÄ£Ê½
+              
+                      timer5_delay_us(RISE_TIME_DELAY);       // µÈ´ýSDAÏßÂ·ÎÈ¶¨
+              
+                      SCL = 1;                                // À­¸ßÊ±ÖÓÏß
+              
+                      timer5_delay_us(RISE_TIME_DELAY);   // µÈ´ýSCLÏßÂ·ÎÈ¶¨
+              
+                      while(!SCL)                             // ¼ì²éSCL×´Ì¬ÊÇ·ñÎª¸ß£¬²»Îª¸ßÔòµÈ´ý£¬²»Ö´ÐÐwhile£¬Ê±ÖÓÖÜÆÚ£º3
+                      {
+                              timer5_delay_us(I2C_MASTER_HAFT_CYCLE);
+              
+                              if (timercount-- == 0)          // ³¬¹ý8¸öI2C×ÜÏßÖÜÆÚSCLÃ»ÓÐ»Ö¸´£¬Ôò±¨´í
+                              {
+                                      return RET_FAILED;
+                              }
+                      }
+              
+                      *value = SDA;
+              
+                      timer5_delay_us(I2C_MASTER_DELAY);
+              
+                      SCL = 0;
+              
+                      timer5_delay_us((I2C_MASTER_DELAY > FUNC_CALL_ERROR_TIME) ? (I2C_MASTER_DELAY - FUNC_CALL_ERROR_TIME) : 0
+             -);
+              
+                      return RET_OK;
+              }
+              #endif
+              
+              
+              /*
+               * ½ÓÊÕÒ»¸öbitÊý¾ÝµÄºê¶¨Òå
+               * ½ÓÊÕÒ»¸öbitÊý¾Ý×îºÃÓÃºê¶¨Òå£¬ÒòÎªº¯Êýµ÷ÓÃ»áÉæ¼°µ½²ÎÊýµÄÑ¹Õ»ÈëÕ»£¬ÒÔ¼°º¯Êý·µ»ØÖµ£¬
+               * ÕâÐ©Ö¸ÁîµÄÀÛ¼ÆºÄÊ±¹À¼ÆÔÚ1¸öus×óÓÒ£¬±Ï¾¹ÕâÀïµÄÊ±Ðò¶¼ÊÇ¾«È·µ½us¼¶±ð£¬Æ«²îÒ»¸ö
+               * us£¬Êµ¼ÊµÄÆµÂÊ¶¼ÓÐ½Ï´ó±ä»¯
+               * ×¢ÒâÕâ¾ä´úÂëwhile(!SCL);
+               * ÕâÀïÊ¹ÓÃÑÓÊ±º¯ÊýÀ´ÑÓÊ±²¢²»×¼È·£¬ÒòÎª¼ÙÉèÕâÀïÑÓÊ±1us£¬µ«ÊÇÊµ¼ÊÉÏÓ²¼þ´ïµ½¸ßµçÆ½Õâ¸ö
+               * Ê±¼äÊÇÓÐÓ²¼þ¾ö¶¨µÄ£¬ÓÐµÄÊÇ500ns,ÓÐµÄÊÇ1000ns,Èç¹ûÊµ¼ÊÐèÒª800nsÀ­¸ß£¬µ«ÊÇ
+               * ÎÒÃÇÑÓÊ±1000ns£¬ÄÇÃ´¶à³öµÄ200ns¾Í±ä³ÉÁË¸ßµçÆ½µÄ±£³ÖÊ±¼äÁË£¬´Ó¶øµ¼ÖÂÖÜÆÚ²»×¼£¬
+               * ÁíÍâÈç¹ûÕâÀïSCL±»À­¸ßÁË£¬ÄÇÃ´SDA¿Ï¶¨¸³ÖµÍê³ÉÁË£¬ÒòÎªËüÔÚSCLÀ­¸ßÖ®Ç°
+               * timer5_delay_us(I2C_MASTER_HAFT_CYCLE - 1)ÕâÀï¼õÒ»µÄÄ¿µÄÊÇÈçÏÂÁ½¾ä´úÂëwhile(!SCL);_i2c_master_imitate_s
+             -truct.readBit = SDA;µÄºÄÊ±Ê±¼ä
+               * timer5_delay_us(I2C_MASTER_HAFT_CYCLE - 2)ÕâÀï¼õÒ»µÄÄ¿µÄÊÇÕâ¸öºêµ÷ÓÃÍê³ÉºóforÑ­»·ÖÐÖ¸ÁîµÄºÄÊ±Ê±¼ä£¬Õâ¸ö
+             -µÄµ½µ×¼õ¶àÉÙÊ±¼äÎó²î¿ÉÒÔÍ¨¹ý²âÁ¿µÃµ½
+               */
+              
+C51 COMPILER V9.53.0.0   LIB_I2C_MASTER                                                    07/25/2019 13:43:49 PAGE 6   
+
+              #define READ_BIT() \
+              {       \
+                      SDA = 1;        \
+                      SCL = 1;        \
+                      while(!SCL);\
+                      _i2c_master_imitate_struct.readBit = SDA;       \
+                      timer5_delay_us((_i2c_master_imitate_struct.half > 1) ? (_i2c_master_imitate_struct.half - 1) : 0);\
+                      SCL = 0;        \
+                      while(SCL);     \
+                      timer5_delay_us((_i2c_master_imitate_struct.half > 2) ? (_i2c_master_imitate_struct.half - 2) : 0);\
+              }
+              
+              /*
+               * ·¢ËÍÒ»¸öbyteÊý¾Ý,½ö½öÊÇÊý¾Ý
+               */
+              uint8_t i2c_master_imitate_send_byte(uint8_t value)
+              {
+                      uint8_t i = 0;
+              
+                      for(i = 0; i < 8; i++)
+                      {
+                              WRITE_BIT(GET_BIT(value, 7 - i));  //ÏÈ´«ËÍ¸ßbit
+                      }
+              
+                      READ_BIT();
+              
+                      if(_i2c_master_imitate_struct.readBit == 1)  //NACK
+                      {
+                              return RET_FAILED;
+                      }
+                      return RET_OK;
+              }
+              
+              /*
+               * ½ÓÊÕÒ»¸öbyteÊý¾Ý£¬·µ»ØÓ¦´ð
+               */
+              uint8_t i2c_master_imitate_recv_byte (uint8_t ack_out, uint8_t *value)
+              {
+                      uint8_t i = 0;
+              
+                      *value = 0;
+              
+                      for(i = 0; i < 8; i++)
+                      {
+                              READ_BIT();
+                              *value |= (_i2c_master_imitate_struct.readBit << (7 - i)); //ÏÈ½ÓÊÕ¸ßbit
+                      }
+              
+                      WRITE_BIT(ack_out);
+              
+                      return RET_OK;
+              }
+              
+              
+              static uint8_t _i2c_master_send_offset_addr(uint8_t baseAddr, uint16_t offsetAddr)
+              {
+                      _i2c_master_update_width_flag(baseAddr);
+              
+                      // Ð´ÈëÊý¾ÝÐ´ÈëµÄ×ÓµØÖ·
+                      if( _i2c_master_imitate_struct.widthFlag)  //indicate offsetAddr width is 8bit
+                      {
+                              if (RET_OK != i2c_master_imitate_send_byte(GET_16BIT_MSB(offsetAddr)))  //ÏÈ·¢ËÍ¸ß×Ö½Ú
+                              {
+C51 COMPILER V9.53.0.0   LIB_I2C_MASTER                                                    07/25/2019 13:43:49 PAGE 7   
+
+                                      _i2c_master_imitate_struct.widthFlag = false;
+                                 _i2c_master_imitate_stop();
+                                 return RET_FAILED;
+                              }
+              
+                              if (RET_OK != i2c_master_imitate_send_byte(GET_16BIT_LSB(offsetAddr))) //ÔÙ·¢ËÍ¸ß×Ö½Ú
+                              {
+                                      _i2c_master_imitate_struct.widthFlag = false;
+                                 _i2c_master_imitate_stop();
+                                 return RET_FAILED;
+                              }
+                      }
+                      else  //indicate offsetAddr width > 8bit
+                      {
+                              if (RET_OK != i2c_master_imitate_send_byte(GET_16BIT_LSB(offsetAddr)))
+                              {
+                                      _i2c_master_imitate_struct.widthFlag = false;
+                                 _i2c_master_imitate_stop();
+                                 return RET_FAILED;
+                              }
+                      }
+              
+                      _i2c_master_imitate_struct.widthFlag = false;
+              
+                      return  RET_OK;
+              }
+              
+              /*
+               * µ¥µØÖ·µ¥×Ö½Ú¶Á£¬Ïò´Ó»úÐ¾Æ¬·¢ËÍÒ»¸ö×Ö½ÚµØÖ·£¬¶ÁÈ¡Ò»¸ö×Ö½ÚÊý¾Ý
+               */
+              uint8_t i2c_master_imitate_read_byte (uint8_t baseAddr,uint16_t offsetAddr, uint8_t *buff)
+              {
+              
+                      // ·¢ËÍSTARTÐÅºÅ
+                      if (RET_OK != _i2c_master_imitate_start())
+                      {
+                              _i2c_master_imitate_stop();
+                              return RET_FAILED;
+                      }
+              
+                      // ¶ÔÉè±¸µØÖ·½øÐÐSLA+WÑ°Ö·
+                      if (RET_OK != i2c_master_imitate_send_byte((baseAddr & 0xFE)))
+                      {
+                              _i2c_master_imitate_stop();
+                              return RET_FAILED;
+                      }
+              
+                      //·¢ËÍÆ«ÒÆµØÖ·
+                      _i2c_master_send_offset_addr(baseAddr, offsetAddr);
+              
+                      // ·¢ËÍRESTARTÐÅºÅ
+                      if (RET_OK != _i2c_master_imitate_start())
+                      {
+                              _i2c_master_imitate_stop();
+                              return RET_FAILED;
+                      }
+              
+                      // ¶ÔÉè±¸µØÖ·½øÐÐSLA+RÑ°Ö·
+                      if (RET_OK != i2c_master_imitate_send_byte((baseAddr | 0x01)))
+                      {
+                              _i2c_master_imitate_stop();
+                              return RET_FAILED;
+                      }
+C51 COMPILER V9.53.0.0   LIB_I2C_MASTER                                                    07/25/2019 13:43:49 PAGE 8   
+
+              
+                      // ¶ÁÈ¡Ò»¸ö×Ö½ÚµÄÊý¾Ý£¬²¢·µ»ØNACK
+                      if (RET_OK != i2c_master_imitate_recv_byte(1, buff))
+                      {
+                              _i2c_master_imitate_stop();
+                              return RET_FAILED;
+                      }
+              
+                      // ·¢ËÍSTOPÐÅºÅ
+                      if (RET_OK != _i2c_master_imitate_stop() )
+                      {
+                              return RET_FAILED;
+                      }
+              
+                      return RET_OK;
+              }
+              
+              /*
+               * ¶à×Ö½Ú¶Á£¬Ïò´Ó»úÐ¾Æ¬·¢ËÍÒ»¸ö×Ö½ÚµØÖ·£¬¶ÁÈ¡Èô¸É¸ö×Ö½ÚÊý¾Ý
+               */
+              uint8_t i2c_master_imitate_read(uint8_t baseAddr,uint16_t offsetAddr,uint8_t *buff,uint16_t len)
+              {
+                      uint8_t i = 0;
+              
+                      // ·¢ËÍSTARTÐÅºÅ
+                      if (RET_OK != _i2c_master_imitate_start())
+                      {
+                              _i2c_master_imitate_stop();
+                              return RET_FAILED;
+                      }
+              
+                      // ¶ÔÉè±¸µØÖ·½øÐÐSLA+WÑ°Ö·
+                      if (RET_OK != i2c_master_imitate_send_byte((baseAddr & 0xFE)))
+                      {
+                              _i2c_master_imitate_stop();
+                              return RET_FAILED;
+                      }
+              
+                      //·¢ËÍÆ«ÒÆµØÖ·
+                      _i2c_master_send_offset_addr(baseAddr, offsetAddr);
+              
+                      // ·¢ËÍRESTARTÐÅºÅ
+                      if (RET_OK != _i2c_master_imitate_start())
+                      {
+                              _i2c_master_imitate_stop();
+                              return RET_FAILED;
+                      }
+              
+                      // ¶ÔÉè±¸µØÖ·½øÐÐSLA+RÑ°Ö·
+                      if (RET_OK != i2c_master_imitate_send_byte((baseAddr | 0x01)))
+                      {
+                              _i2c_master_imitate_stop();
+                              return RET_FAILED;
+                      }
+              
+                      // ¶ÁÈ¡Ò»¸ö×Ö½ÚµÄÊý¾Ý£¬²¢·µ»ØACK
+                      for(i = 0; i < len - 1; i ++)
+                      {
+                              if (RET_OK != i2c_master_imitate_recv_byte(0, &buff[i]))
+                              {
+                                      _i2c_master_imitate_stop();
+                                      return RET_FAILED;
+                              }
+C51 COMPILER V9.53.0.0   LIB_I2C_MASTER                                                    07/25/2019 13:43:49 PAGE 9   
+
+                      }
+              
+                      //¶Á×îºóÒ»¸ö×Ö½ÚµÄÊý¾Ý£¬·µ»ØNACK
+                      if (RET_OK != i2c_master_imitate_recv_byte(1, &buff[len - 1]))
+                      {
+                              _i2c_master_imitate_stop();
+                              return RET_FAILED;
+                      }
+              
+                      // ·¢ËÍSTOPÐÅºÅ
+                      if (RET_OK != _i2c_master_imitate_stop() )
+                      {
+                              return RET_FAILED;
+                      }
+              
+                      return RET_OK;
+              }
+              
+              /*
+               * µ¥µØÖ·µ¥×Ö½ÚÐ´£¬Ïò´Ó»úÐ¾Æ¬·¢ËÍÒ»¸ö×Ö½ÚµØÖ·£¬Ð´ÈëÒ»¸ö×Ö½ÚÊý¾Ý
+               */
+              uint8_t i2c_master_imitate_write_byte (uint8_t baseAddr,uint16_t offsetAddr, uint8_t value)
+              {
+                      _i2c_master_update_width_flag(baseAddr);
+              
+                      // ·¢ËÍSTARTÐÅºÅ
+                      if (RET_OK != _i2c_master_imitate_start())
+                      {
+                              _i2c_master_imitate_stop();
+                              return RET_FAILED;
+                      }
+              
+                      // ¶ÔÉè±¸µØÖ·½øÐÐSLA+WÑ°Ö·
+                      if (RET_OK != i2c_master_imitate_send_byte((baseAddr & 0xFE)))
+                      {
+                              _i2c_master_imitate_stop();
+                              return RET_FAILED;
+                      }
+              
+                      //·¢ËÍÆ«ÒÆµØÖ·
+                      _i2c_master_send_offset_addr(baseAddr, offsetAddr);
+              
+                      // Ð´ÈëÊý¾Ý
+                      if (RET_OK != i2c_master_imitate_send_byte(value))
+                      {
+                              _i2c_master_imitate_stop();
+                              return RET_FAILED;
+                      }
+              
+                      // ·¢ËÍSTOPÐÅºÅ
+                      if (RET_OK != _i2c_master_imitate_stop())
+                      {
+                              return RET_FAILED;
+                      }
+              
+                      return RET_OK;
+              }
+              
+              uint8_t i2c_master_imitate_write(uint8_t baseAddr, uint16_t offsetAddr, uint8_t *buff, uint8_t len)
+              {
+                      uint8_t i = 0;
+                      // ·¢ËÍSTARTÐÅºÅ
+                      if (RET_OK != _i2c_master_imitate_start())
+C51 COMPILER V9.53.0.0   LIB_I2C_MASTER                                                    07/25/2019 13:43:49 PAGE 10  
+
+                      {
+                              _i2c_master_imitate_stop();
+                              return RET_FAILED;
+                      }
+              
+                      // ¶ÔÉè±¸µØÖ·½øÐÐSLA+WÑ°Ö·
+                      if (RET_OK != i2c_master_imitate_send_byte((baseAddr & 0xFE)))
+                      {
+                              _i2c_master_imitate_stop();
+                              return RET_FAILED;
+                      }
+              
+                      //·¢ËÍÆ«ÒÆµØÖ·
+                      _i2c_master_send_offset_addr(baseAddr, offsetAddr);
+              
+                      // Ð´ÈëÊý¾Ý
+                      for (i = 0; i < len; i ++)
+                      {
+                              if (RET_OK != i2c_master_imitate_send_byte(buff[i]))
+                              {
+                                      _i2c_master_imitate_stop();
+                                      return RET_FAILED;
+                              }
+                      }
+              
+                      // ·¢ËÍSTOPÐÅºÅ
+                      if (RET_OK != _i2c_master_imitate_stop())
+                      {
+                              return RET_FAILED;
+                      }
+              
+                      return RET_OK;
+              }
+              #endif
+ 582          
+ 583          void i2c_master_init(void)
+ 584          {
+ 585   1      #if I2C_MASTER_MODE
+ 586   1              i2c_master_hw_init();
+ 587   1      #else
+                      _i2c_master_imitate_struct_init();
+                      _i2c_master_imitate_init();
+              #endif
+ 591   1      }
+ 592          
+ 593          uint8_t i2c_master_read(uint8_t baseAddr,uint16_t offsetAddr,uint8_t *buff,uint16_t len)
+ 594          {
+ 595   1      #if I2C_MASTER_MODE
+ 596   1              return i2c_master_hw_read(baseAddr, offsetAddr, buff, len);
+ 597   1      #else
+                      return i2c_master_imitate_read(baseAddr, offsetAddr, buff, len);
+              #endif
+ 600   1      }
+ 601          
+ 602          uint8_t i2c_master_read_byte(uint8_t baseAddr,uint16_t offsetAddr,uint8_t *buff)
+ 603          {
+ 604   1      #if I2C_MASTER_MODE
+ 605   1              return i2c_master_hw_read(baseAddr, offsetAddr, buff, 1);
+ 606   1      #else
+                      return i2c_master_imitate_read(baseAddr, offsetAddr, buff, 1);
+              #endif
+ 609   1      }
+ 610          
+C51 COMPILER V9.53.0.0   LIB_I2C_MASTER                                                    07/25/2019 13:43:49 PAGE 11  
+
+ 611          uint8_t i2c_master_write(uint8_t baseAddr,uint16_t offsetAddr,uint8_t *buff,uint16_t len)
+ 612          {
+ 613   1      #if I2C_MASTER_MODE
+ 614   1              return i2c_master_hw_write(baseAddr, offsetAddr, buff, len);
+ 615   1      #else
+                      return i2c_master_imitate_write(baseAddr, offsetAddr, buff, len);
+              #endif
+ 618   1      }
+ 619          
+ 620          uint8_t i2c_master_write_byte(uint8_t baseAddr,uint16_t offsetAddr, uint8_t value)
+ 621          {
+ 622   1      #if I2C_MASTER_MODE
+ 623   1              return i2c_master_hw_write(baseAddr, offsetAddr, &value, 1);
+ 624   1      #else
+                      return i2c_master_imitate_write(baseAddr, offsetAddr, &value, 1);
+              #endif
+ 627   1      }
+ 628          
+ 629          uint16_t i2c_master_get_freq(void)
+ 630          {
+ 631   1      #if I2C_MASTER_MODE
+ 632   1              return i2c_master_hw_get_freq();
+ 633   1      #else
+                      return (uint16_t)_i2c_master_imitate_struct.freq;
+              #endif
+ 636   1      }
+ 637          
+ 638          void i2c_master_set_freq(uint16_t freq)
+ 639          {
+ 640   1      #if I2C_MASTER_MODE
+ 641   1              i2c_master_hw_set_freq(freq);
+ 642   1      #else
+                      _i2c_master_imitate_struct.freq = freq;
+              #endif
+ 645   1      }
+ 646          
+ 647          void i2c_master_reset(void)
+ 648          {
+ 649   1      #if I2C_MASTER_MODE
+ 650   1              i2c_master_hw_reset();
+ 651   1      #else
+                      _i2c_master_imitate_reset();
+              #endif
+ 654   1      }
+ 655          
+ 656          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     94    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----      17
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,188 @@
+C51 COMPILER V9.53.0.0   MCU_SAL_TASK                                                      10/14/2019 10:20:42 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE MCU_SAL_TASK
+OBJECT MODULE PLACED IN .\mcu_sal_lib\mcu_sal_task.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\mcu_sal_lib\mcu_sal_task.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLO
+                    -ATFUZZY(3) OPTIMIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(D:/Work Project/SingleChipWorkSpaveNew/
+                    -C51_UBOOT/inc;D:/Work Project/SingleChipWorkSpaveNew/C51_UBOOT/mcu_sal_lib;C:/SiliconLabs/SimplicityStudio/v3/developer/
+                    -sdks/si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc
+                    -;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/develop
+                    -er/sdks/si8051/v3//Lib/efm8lb1;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:/SiliconLab
+                    -s/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/peripheral_driver/inc) PRINT(.\mcu_sal_lib\mcu_sal_task.l
+                    -st) COND PAGEWIDTH(120) PAGELENGTH(65) OBJECT(.\mcu_sal_lib\mcu_sal_task.OBJ)
+
+line level    source
+
+   1          #include "mcu_sal.h"
+   2          
+   3          #ifdef MCU_TASK_MODULE_ENABLED
+   4          
+   5          static TASK_LIST_T *task_list = NULL;
+   6          
+   7          /*
+   8           * 如果要增加优先级功能，那么必须先定义好优先级的列表，然后根据添加任务优先级的，
+   9           * 插入到相应的位置,这么做的优势是增加新的任务的时候，不需要做优先级的更改和变动，
+  10           * 而且方便调用，缺点是不允许有相同优先级的任务，并且当添加的任务个数只有一个的时候，
+  11           * 也必须遍历整个优先级任务列表
+  12           */
+  13          void task_add(TASK_STRUCT_T *task)
+  14          {
+  15   1              ASSERT(task);
+  16   1              ASSERT(task_list);
+  17   1      
+  18   1              if(task->pri < TASK_NUM)
+  19   1              {
+  20   2                      if((task_list->tasks[task->pri] == NULL) && (task_list->task_num < TASK_NUM))
+  21   2                      {
+  22   3                              task_list->tasks[task->pri] = task;
+  23   3                      }
+  24   2                      else
+  25   2                      {
+  26   3                              lib_log("\r\n task_add failed1");
+  27   3                              return;
+  28   3                      }
+  29   2              }
+  30   1              else
+  31   1              {
+  32   2                      lib_log("\r\n task_add failed2");
+  33   2                      return;
+  34   2              }
+  35   1      
+  36   1              task_list->task_num ++;
+  37   1      }
+  38          
+  39          
+  40          void task_list_init(TASK_LIST_T *list)
+  41          {
+  42   1              uint8_t i = 0;
+  43   1      
+  44   1              ASSERT(list);
+  45   1      
+  46   1              task_list = list;
+  47   1      
+  48   1              for(i = 0; i < TASK_NUM; i++)
+C51 COMPILER V9.53.0.0   MCU_SAL_TASK                                                      10/14/2019 10:20:42 PAGE 2   
+
+  49   1              {
+  50   2                      task_list->tasks[i]               = NULL;
+  51   2                      task_list->fast_task.id[i]    = TASK_ID_INVALID;
+  52   2              }
+  53   1      
+  54   1              task_list->task_num       = 0;
+  55   1              task_list->fast_task.num  = 0;
+  56   1      
+  57   1      }
+  58          
+  59          /*
+  60           * 这个函数的作用是优先响应中断相关的任务，当发生某种中断的时候，
+  61           * 会在中断处理函数中调用该函数，这样当当前的任务结束以后，检测有
+  62           * 需要快速调用的任务，会优先响应这个任务，需要注意的是这里并没有
+  63           * 直接使用函数函数名作为参数，而是虚拟化为ID，这样做的目的是为了
+  64           * 规避编译器的告警，如果使用函数名作为该函数的参与，那么参与类型
+  65           * 就是函数指针，而这个函数通常是在中断处理函数中调用，所以编译器
+  66           * 会报告中断处理函数和主程序都调用了同一个函数的告警信息
+  67           *
+  68           * */
+  69          void task_fast_handle(uint8_t id)
+  70          {
+  71   1              uint8_t i = 0;
+  72   1      
+  73   1              ASSERT(task_list);
+  74   1      
+  75   1              if(task_list->task_num == 0)  //do nothing when no task in task list
+  76   1              {
+  77   2                      return;
+  78   2              }
+  79   1      
+  80   1              for(i = 0; i < task_list->fast_task.num; i++)
+  81   1              {
+  82   2                      if(task_list->fast_task.id[i] == id)  //if current task id is already exist, do nothing
+  83   2                      {
+  84   3                              return;
+  85   3                      }
+  86   2              }
+  87   1      
+  88   1              //if current id is not exist
+  89   1              if((task_list->fast_task.num < task_list->task_num) && (task_list->fast_task.id[task_list->fast_task.num]
+             - == TASK_ID_INVALID))
+  90   1              {
+  91   2                      //here there is not juduge id and gTaskInstant[id] validity,so they are judged in using
+  92   2                      ENTER_CRITICAL();
+  93   2                      task_list->fast_task.id[task_list->fast_task.num] = id;
+  94   2                      task_list->fast_task.num ++;
+  95   2                      EXIT_CRITICAL();
+  96   2              }
+  97   1      }
+  98          
+  99          
+ 100          static uint8_t _task_find(uint8_t id)
+ 101          {
+ 102   1              uint8_t i = 0;
+ 103   1      
+ 104   1              RE_ASSERT(task_list);
+ 105   1      
+ 106   1              for(i = 0; i < TASK_NUM; i++)
+ 107   1              {
+ 108   2                      if((task_list->tasks[i] != NULL) && (task_list->tasks[i]->id == id))
+ 109   2                      {
+ 110   3                              return task_list->tasks[i]->pri;
+C51 COMPILER V9.53.0.0   MCU_SAL_TASK                                                      10/14/2019 10:20:42 PAGE 3   
+
+ 111   3                      }
+ 112   2              }
+ 113   1      
+ 114   1              return TASK_NUM;
+ 115   1      }
+ 116          
+ 117          void task_run()
+ 118          {
+ 119   1              uint8_t i = 0, j = 0, index = 0;
+ 120   1      
+ 121   1              ASSERT(task_list);
+ 122   1      
+ 123   1              for(i = 0; i < TASK_NUM; i++)
+ 124   1              {
+ 125   2                      for(j = 0; j < task_list->fast_task.num; j++)
+ 126   2                      {
+ 127   3                              index = _task_find(task_list->fast_task.id[j]);
+ 128   3      
+ 129   3                              if((index < TASK_NUM) && (task_list->tasks[index] != NULL))
+ 130   3                              {
+ 131   4                                      task_list->tasks[index]->func();
+ 132   4                              }
+ 133   3      
+ 134   3                              ENTER_CRITICAL();  //because fast_task.num and fast_task.id is updated by multiple interrupt handle fun
+             -ction, it must disable global interrupt
+ 135   3                              task_list->fast_task.num --;
+ 136   3                              task_list->fast_task.id[j] = TASK_ID_INVALID;
+ 137   3                              EXIT_CRITICAL();
+ 138   3                      }
+ 139   2      
+ 140   2                      if(task_list->tasks[i] != NULL)  //i is actually pri, get task id by pri,and get task pointer by id
+ 141   2                      {
+ 142   3                              task_list->tasks[i]->func();
+ 143   3                      }
+ 144   2              }
+ 145   1      }
+ 146          
+ 147          #endif
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1044    ----
+   CONSTANT SIZE    =     40    ----
+   XDATA SIZE       =      3       9
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

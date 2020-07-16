@@ -1,0 +1,346 @@
+C51 COMPILER V9.53.0.0   MCU_SAL_MDIO                                                      10/14/2019 10:20:38 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE MCU_SAL_MDIO
+OBJECT MODULE PLACED IN .\mcu_sal_lib\mcu_sal_mdio.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\mcu_sal_lib\mcu_sal_mdio.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLO
+                    -ATFUZZY(3) OPTIMIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(D:/Work Project/SingleChipWorkSpaveNew/
+                    -C51_UBOOT/inc;D:/Work Project/SingleChipWorkSpaveNew/C51_UBOOT/mcu_sal_lib;C:/SiliconLabs/SimplicityStudio/v3/developer/
+                    -sdks/si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc
+                    -;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/develop
+                    -er/sdks/si8051/v3//Lib/efm8lb1;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:/SiliconLab
+                    -s/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/peripheral_driver/inc) PRINT(.\mcu_sal_lib\mcu_sal_mdio.l
+                    -st) COND PAGEWIDTH(120) PAGELENGTH(65) OBJECT(.\mcu_sal_lib\mcu_sal_mdio.OBJ)
+
+line level    source
+
+   1          #include "mcu_sal.h"
+   2          
+   3          #ifdef MCU_MDIO_MODULE_ENABLED
+   4          
+   5          uint8_t delayVar  = 1;
+   6          uint8_t readBit = 1;
+   7          
+   8          #define WRITE_BIT(value) \
+   9          {                        \
+  10                  MDC  = 0; \
+  11                  MDIO = value; \
+  12                  delay_1us; \
+  13                  MDC  = 1; \
+  14                  DELAY_PIN = delayVar;\
+  15                  delay_1us; \
+  16          }
+  17          
+  18          //MDC拉高的300ns的以后才能读取MDIO
+  19          #define READ_BIT() \
+  20          {       \
+  21                  MDC = 0; \
+  22                  delayVar = DELAY_PIN;\
+  23                  delay_1us;\
+  24                  MDC = 1; \
+  25                  delay_300ns; \
+  26                  readBit = MDIO; \
+  27                  delay_200ns; \
+  28          }
+  29          
+  30          #define SET_TURN_AROUND() \
+  31          { \
+  32                  MDC  = 0; \
+  33                  delay_1us; \
+  34                  MDC = 1; \
+  35                  delay_1us; \
+  36          }
+  37          
+  38          
+  39          #if 0
+              #define READ_BIT1() \
+              {       \
+                      MDC = 0; \
+                      delayVar = DELAY_PIN;\
+                      delay_4us;\
+                      MDC = 1; \
+                      delay_72_nop; \
+                      readBit = MDIO; \
+                      delay_2us; \
+C51 COMPILER V9.53.0.0   MCU_SAL_MDIO                                                      10/14/2019 10:20:38 PAGE 2   
+
+              }
+              #endif
+  51          
+  52          /*
+  53           *  初始化I2C总线
+  54           */
+  55          uint8_t mdio_init(void)
+  56          {
+  57   1              MDC  = 0;
+  58   1              MDIO = 0;
+  59   1      
+  60   1              lib_delay_us(MDIO_DELAY);
+  61   1      
+  62   1              MDC  = 1;
+  63   1              MDIO = 1;
+  64   1      
+  65   1              lib_delay_us(MDIO_DELAY);            // 等待时钟上升沿完成
+  66   1      
+  67   1              if (MDC && MDIO)
+  68   1              {
+  69   2                      return RET_OK;                                // 初始化成功
+  70   2              }
+  71   1      
+  72   1              lib_log("mdio init failed, MDC = %bu, MDIO = %bu", MDC ? 1: 0, MDIO ? 1: 0);
+  73   1              return RET_FAILED;                                    // 管脚状态不对，初始化异常
+  74   1      }
+  75          
+  76          
+  77          /*
+  78          MDIO发送一个数据,MDIO 必须被配置为输出模式.
+  79          value:要发送的数据
+  80          bits:数据的位数
+  81          */
+  82          #if 0
+              static void _mdio_send_data(uint32_t value ,uint8_t bits)
+              {
+                 int16_t i = 0;
+              
+                 for(i = bits - 1; i >= 0; i--)  //先传送高bit
+                 {
+                      WRITE_BIT((value >> i) & 1);
+                 }
+              }
+              #else
+  93          
+  94          #define _mdio_send_data(value, bits) \
+  95          {  \
+  96             int16_t i = 0; \
+  97             for(i = bits - 1; i >= 0; i--)  \
+  98             {    \
+  99                          WRITE_BIT((value >> i) & 1);\
+ 100             }    \
+ 101          } \
+ 102          
+ 103          #endif
+ 104          
+ 105          /*
+ 106          MDIO获取一个数据,MDIO 必须被配置为输入模式.
+ 107          bits:获取数据的位数
+ 108          */
+ 109          static uint32_t _mdio_recv_data(uint8_t bits)
+ 110          {
+ 111   1              uint32_t value = 0;
+C51 COMPILER V9.53.0.0   MCU_SAL_MDIO                                                      10/14/2019 10:20:38 PAGE 3   
+
+ 112   1              int16_t i = 0;
+ 113   1      
+ 114   1              for(i = bits - 1; i >= 0; i--)
+ 115   1              {
+ 116   2                      value <<= 1;
+ 117   2                      READ_BIT();
+ 118   2                      value |= readBit;
+ 119   2              }
+ 120   1      
+ 121   1          return value;
+ 122   1      }
+ 123          
+ 124          static void _mdio_release_bus()
+ 125          {
+ 126   1              READ_BIT();  //release MDIO bus
+ 127   1              MDC = 1;
+ 128   1              MDIO = 1;  //there must be setted 1 in order to release MDIO bus because the last bit may be 0 on MDIO bu
+             -s line
+ 129   1      }
+ 130          
+ 131          static void _mdio_send_reg_addr(uint32_t phyAddr, uint32_t devAddr, uint16_t regAddr)
+ 132          {
+ 133   1              int16_t i = 0;
+ 134   1      
+ 135   1              ENTER_CRITICAL();
+ 136   1      
+ 137   1              /*发送32bit的1，这个帧前缀域不是必须的，某些物理层芯片的MDIO操作就没有这个域*/
+ 138   1              for(i = 0; i < 32; i++)
+ 139   1              {
+ 140   2                      WRITE_BIT(1);
+ 141   2              }
+ 142   1      
+ 143   1              /*
+ 144   1               * 发送开始位(01),和读操作码(10),写操作码(01)
+ 145   1               * Clause 45 操作，开始位是(00),(11)为读,(01)为写
+ 146   1               */
+ 147   1      
+ 148   1      #if MDIO_CLAUSE == MDIO_CLAUSE45
+ 149   1               //发送开始信号
+ 150   1               WRITE_BIT(0);
+ 151   1               for(i = 0; i < 1; i++);
+ 152   1               WRITE_BIT(0);
+ 153   1               for(i = 0; i < 1; i++);
+ 154   1      
+ 155   1               //send write operation,write operation code is 01
+ 156   1               WRITE_BIT(0);
+ 157   1               for(i = 0; i < 1; i++);
+ 158   1               WRITE_BIT(0);
+ 159   1               for(i = 0; i < 1; i++);
+ 160   1      #else
+                       WRITE_BIT(0);
+                       WRITE_BIT(1);
+              
+                       //send read operation,write operation code is 10
+                       WRITE_BIT(0);
+                       WRITE_BIT(1);
+              #endif
+ 168   1      
+ 169   1              _mdio_send_data(phyAddr, 5);
+ 170   1              _mdio_send_data(devAddr, 5);
+ 171   1      
+ 172   1              /* send the turnaround (10) */
+ 173   1              WRITE_BIT(1);
+C51 COMPILER V9.53.0.0   MCU_SAL_MDIO                                                      10/14/2019 10:20:38 PAGE 4   
+
+ 174   1              for(i = 0; i < 1; i++);
+ 175   1              WRITE_BIT(0);
+ 176   1              for(i = 0; i < 1; i++);
+ 177   1      
+ 178   1              _mdio_send_data(regAddr, 16);
+ 179   1      
+ 180   1              EXIT_CRITICAL();
+ 181   1      }
+ 182          
+ 183          uint32_t mdio_read(uint32_t phyAddr, uint32_t devAddr, uint32_t regAddr)
+ 184          {
+ 185   1              uint8_t i = 0;
+ 186   1              uint32_t value = 0;
+ 187   1      
+ 188   1              _mdio_send_reg_addr(phyAddr, devAddr, regAddr);
+ 189   1      
+ 190   1              //lib_mdio_output(TYPE_MDIO);
+ 191   1      
+ 192   1              ENTER_CRITICAL();
+ 193   1              /*发送32bit的1，这个帧前缀域不是必须的，某些物理层芯片的MDIO操作就没有这个域*/
+ 194   1              for(i = 0; i < 32; i++)
+ 195   1              {
+ 196   2                      WRITE_BIT(1);
+ 197   2              }
+ 198   1      
+ 199   1              /*
+ 200   1               * 发送开始位(01),和读操作码(10),写操作码(01)
+ 201   1               * Clause 45 操作，开始位是(00),(11)为读,(01)为写
+ 202   1               */
+ 203   1               //发送开始信号
+ 204   1      #if MDIO_CLAUSE == MDIO_CLAUSE45
+ 205   1               WRITE_BIT(0);
+ 206   1               for(i = 0; i < 1; i++);
+ 207   1               WRITE_BIT(0);
+ 208   1               for(i = 0; i < 1; i++);
+ 209   1      
+ 210   1               //send read operation,read operation code is 11
+ 211   1               WRITE_BIT(1);
+ 212   1               for(i = 0; i < 1; i++);
+ 213   1               WRITE_BIT(1);
+ 214   1               for(i = 0; i < 1; i++);
+ 215   1      #else
+                       WRITE_BIT(0);
+                       WRITE_BIT(1);
+              
+                       //send read operation,read operation code is 10
+                       WRITE_BIT(1);
+                       WRITE_BIT(0);
+              #endif
+ 223   1      
+ 224   1               _mdio_send_data(phyAddr, 5);
+ 225   1               _mdio_send_data(devAddr, 5);
+ 226   1      
+ 227   1               /* 有的PHY芯片不需要这个bit
+ 228   1                * WRITE_BIT(1);
+ 229   1                * for(i = 0; i < 1; i++)
+ 230   1                */
+ 231   1      
+ 232   1               READ_BIT();
+ 233   1      
+ 234   1              /*check the turnaround bit: the PHY should be driving it to zero */
+ 235   1              if(readBit != 0)
+ 236   1              {
+C51 COMPILER V9.53.0.0   MCU_SAL_MDIO                                                      10/14/2019 10:20:38 PAGE 5   
+
+ 237   2                      /* PHY didn't driver TA low -- flush any bits it may be trying to send*/
+ 238   2                      for(i = 0; i < 32; i++)
+ 239   2                      {
+ 240   3                              READ_BIT();
+ 241   3                      }
+ 242   2                      lib_log("PHY not ACK in MDIO \r\n");
+ 243   2                      return 0x5555;
+ 244   2              }
+ 245   1      
+ 246   1              value = _mdio_recv_data(16);
+ 247   1              _mdio_release_bus();
+ 248   1              EXIT_CRITICAL();
+ 249   1          return value;
+ 250   1      }
+ 251          
+ 252          void mdio_write(uint32_t phyAddr, uint32_t devAddr, uint16_t regAddr, uint32_t value)
+ 253          {
+ 254   1              uint8_t i = 0;
+ 255   1      
+ 256   1              _mdio_send_reg_addr(phyAddr, devAddr, regAddr);
+ 257   1      
+ 258   1              lib_mdio_output(TYPE_MDIO);
+ 259   1      
+ 260   1              /*发送32bit的1，这个帧前缀域不是必须的，某些物理层芯片的MDIO操作就没有这个域*/
+ 261   1              for(i = 0; i < 32; i++)
+ 262   1              {
+ 263   2                      WRITE_BIT(1);
+ 264   2              }
+ 265   1      
+ 266   1              /*
+ 267   1               * 发送开始位(01),和读操作码(10),写操作码(01)
+ 268   1               * Clause 45 操作，开始位是(00),(11)为读,(01)为写
+ 269   1               */
+ 270   1      
+ 271   1      #if MDIO_CLAUSE == MDIO_CLAUSE45
+ 272   1               //发送开始信号
+ 273   1               WRITE_BIT(0);
+ 274   1               WRITE_BIT(0);
+ 275   1      
+ 276   1               //send write operation,read operation code is 01
+ 277   1               WRITE_BIT(0);
+ 278   1               WRITE_BIT(1);
+ 279   1      #else
+                       WRITE_BIT(0);
+                       WRITE_BIT(1);
+              
+                       //send read operation,read operation code is 10
+                       WRITE_BIT(0);
+                       WRITE_BIT(1);
+              #endif
+ 287   1      
+ 288   1              _mdio_send_data(phyAddr, 5);
+ 289   1              _mdio_send_data(devAddr, 5);
+ 290   1      
+ 291   1              /* send the turnaround (10) */
+ 292   1              WRITE_BIT(1);
+ 293   1              WRITE_BIT(0);
+ 294   1      
+ 295   1              _mdio_send_data(value, 16);
+ 296   1              _mdio_release_bus();
+ 297   1              lib_mdio_input(TYPE_MDIO);
+ 298   1      }
+ 299          
+C51 COMPILER V9.53.0.0   MCU_SAL_MDIO                                                      10/14/2019 10:20:38 PAGE 6   
+
+ 300          #endif
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   6171    ----
+   CONSTANT SIZE    =     63    ----
+   XDATA SIZE       =      2      55
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,171 @@
+C51 COMPILER V9.53.0.0   C51_UBOOT_MAIN                                                    10/09/2019 13:50:26 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE C51_UBOOT_MAIN
+OBJECT MODULE PLACED IN .\src\c51_uboot_main.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\src\c51_uboot_main.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOATFUZZ
+                    -Y(3) OPTIMIZE(9,SPEED) DEFINE(NDEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(D:/Work Project/SingleChipWorkSpaveNew/C51_U
+                    -BOOT/inc;D:/Work Project/SingleChipWorkSpaveNew/C51_UBOOT/mcu_sal_lib;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/
+                    -si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:/Silic
+                    -onLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc;C:/SiliconLabs/SimplicityStudio/v3/developer/sdk
+                    -s/si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/peripheral_driv
+                    -er/inc) REGFILE(C51_UBOOT.ORC) PRINT(.\src\c51_uboot_main.lst) COND PAGEWIDTH(120) PAGELENGTH(65) OBJECT(.\src\c51_uboot
+                    -_main.OBJ)
+
+line level    source
+
+   1          
+   2          //-----------------------------------------------------------------------------
+   3          // Includes
+   4          //-----------------------------------------------------------------------------
+   5          #include "mcu_sal.h"
+   6          #include "Efm8lb12_cmd.h"
+   7          #include "Efm8lb12_port.h"
+   8          
+   9          //-----------------------------------------------------------------------------
+  10          // main() Routine
+  11          // ----------------------------------------------------------------------------
+  12          //
+  13          // Note: the software watchdog timer is not disabled by default in this
+  14          // example, so a long-running program will reset periodically unless
+  15          // the timer is disabled or your program periodically writes to it.
+  16          //
+  17          // Review the "Watchdog Timer" section under the part family's datasheet
+  18          // for details. To find the datasheet, select your part in the
+  19          // Simplicity Launcher and click on "Data Sheet".
+  20          //
+  21          //-----------------------------------------------------------------------------
+  22          static void mcu_sysclk_init (void)
+  23          {
+  24   1              uint8_t SFRPAGE_SAVE = SFRPAGE;
+  25   1              // $[HFOSC1 Setup]
+  26   1              // Ensure SYSCLK is > 24 MHz before switching to HFOSC1
+  27   1      
+  28   1              //if SYSCLK > 50MHZ,must set PFE0CN register
+  29   1              SFRPAGE = 0x10;
+  30   1              PFE0CN = PFE0CN_FLRT__SYSCLK_BELOW_75_MHZ ;
+  31   1      
+  32   1              SFRPAGE = 0x00;
+  33   1              CLKSEL = CLKSEL_CLKSL__HFOSC0 | CLKSEL_CLKDIV__SYSCLK_DIV_1;
+  34   1              CLKSEL = CLKSEL_CLKSL__HFOSC0 | CLKSEL_CLKDIV__SYSCLK_DIV_1;
+  35   1              while (CLKSEL & CLKSEL_DIVRDY__BMASK == CLKSEL_DIVRDY__NOT_READY);
+  36   1      
+  37   1              CLKSEL = CLKSEL_CLKSL__HFOSC1 | CLKSEL_CLKDIV__SYSCLK_DIV_1;
+  38   1              CLKSEL = CLKSEL_CLKSL__HFOSC1 | CLKSEL_CLKDIV__SYSCLK_DIV_1;
+  39   1              while (CLKSEL & CLKSEL_DIVRDY__BMASK == CLKSEL_DIVRDY__NOT_READY);
+  40   1              SFRPAGE  = SFRPAGE_SAVE;
+  41   1      }
+  42          
+  43          
+  44          void test1()
+  45          {
+  46   1              //printf("\r\n TEST1");
+  47   1      }
+  48          
+C51 COMPILER V9.53.0.0   C51_UBOOT_MAIN                                                    10/09/2019 13:50:26 PAGE 2   
+
+  49          void test2()
+  50          {
+  51   1              //printf("\r\n TEST2");
+  52   1      }
+  53          
+  54          void test3()
+  55          {
+  56   1              //printf("\r\n TEST3");
+  57   1      }
+  58          
+  59          void test4()
+  60          {
+  61   1              //printf("\r\n TEST4");
+  62   1      }
+  63          
+  64          
+  65          int main (void)
+  66          {
+  67   1              static TASK_STRUCT_T    test1_task;
+  68   1              static TASK_STRUCT_T    test2_task;
+  69   1              static TASK_STRUCT_T    test3_task;
+  70   1              static TASK_STRUCT_T    test4_task;
+  71   1              static TASK_STRUCT_T    terminal_task;
+  72   1              static TASK_STRUCT_T    timer_task;
+  73   1      
+  74   1              IE_EA = 0;                              //Disable global interrupts
+  75   1      
+  76   1              timer_hw_wdt_disable();          //Disable WatchDog
+  77   1      
+  78   1              timer_hw_wdt_init(7);            //Set WatchDog timer to 7s
+  79   1      
+  80   1              mcu_sysclk_init();              //Sysclk Init
+  81   1      
+  82   1              port_init();                            //Port Init
+  83   1      
+  84   1              mcu_sal_init();
+  85   1      
+  86   1              cmd_init();
+  87   1      
+  88   1              IE_EA = 1;                      //Enable global interrupts
+  89   1      
+  90   1              printf("%s","\r\nPeripheral init OK");
+  91   1      
+  92   1      
+  93   1              printf("%s","\r\nTestBoard is ready");
+  94   1              printf("%s","\r\n#McuTestBoard:");
+  95   1      
+  96   1      
+  97   1              test1_task.func = test1;
+  98   1              test1_task.id   = TASK_ID_TESE1;
+  99   1              test1_task.pri  = PRI0;
+ 100   1      
+ 101   1              test4_task.func = test4;
+ 102   1              test4_task.id   = TASK_ID_TESE4;
+ 103   1              test4_task.pri  = PRI11;
+ 104   1      
+ 105   1              test3_task.func = test3;
+ 106   1              test3_task.id   = TASK_ID_TESE3;
+ 107   1              test3_task.pri  = PRI8;
+ 108   1      
+ 109   1              test2_task.func = test2;
+ 110   1              test2_task.id   = TASK_ID_TESE2;
+ 111   1              test2_task.pri  = PRI5;
+C51 COMPILER V9.53.0.0   C51_UBOOT_MAIN                                                    10/09/2019 13:50:26 PAGE 3   
+
+ 112   1      
+ 113   1              terminal_task.func = terminal_event_handle;
+ 114   1              terminal_task.id   = TASK_ID_TERMINAL_HANDLE;
+ 115   1              terminal_task.pri  = PRI15;
+ 116   1      
+ 117   1              timer_task.func = timer_run;
+ 118   1              timer_task.id   = TASK_ID_TIMER_TASK;
+ 119   1              timer_task.pri  = PRI14;
+ 120   1      
+ 121   1              task_add(&test3_task);
+ 122   1              task_add(&test2_task);
+ 123   1              task_add(&test4_task);
+ 124   1              task_add(&test1_task);
+ 125   1              task_add(&terminal_task);
+ 126   1              task_add(&timer_task);
+ 127   1      
+ 128   1              while(1)
+ 129   1              {
+ 130   2                      task_run();
+ 131   2              }
+ 132   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    311    ----
+   CONSTANT SIZE    =     62    ----
+   XDATA SIZE       =     30    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,798 @@
+C51 COMPILER V9.53.0.0   EFM8LB12_SMBUS                                                    07/16/2019 14:28:07 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE EFM8LB12_SMBUS
+OBJECT MODULE PLACED IN .\src\Efm8lb12_smbus.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\src\Efm8lb12_smbus.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOATFUZZ
+                    -Y(3) OPTIMIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(C:/SiliconLabs/SimplicityStudio/v3/developer/
+                    -sdks/si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:/
+                    -SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc) PRINT(.\src\Efm8lb12_smbus.lst) COND PAGEW
+                    -IDTH(120) PAGELENGTH(65) OBJECT(.\src\Efm8lb12_smbus.OBJ)
+
+line level    source
+
+   1          #include <string.h>
+   2          #include "Efm8lb12_smbus.h"
+   3          #include "Efm8lb12_common.h"
+   4          #include "Efm8lb12_timer.h"
+   5          #include "Efm8lb12_qsfp28.h"
+   6          #include "lib_c51_uart.h"
+   7          
+   8          #ifdef SMB_ISR
+   9          
+  10          
+  11          uint8_t* pSMB_DATA_IN = NULL;             // Global pointer for SMBus data All receive data is written her
+             -e
+  12          
+  13          uint8_t SMB_SINGLEBYTE_OUT = 0;           // Global holder for single byte writes.
+  14          
+  15          uint8_t* pSMB_DATA_OUT = NULL;             // Global pointer for SMBus data.
+  16                                                 // All transmit data is read from here
+  17          
+  18          uint16_t SMB_DATA_LEN = 0;                       // Global holder for number of bytes
+  19                                                 // to send or receive in the current
+  20                                                 // SMBus transfer.
+  21          
+  22          uint8_t WORD_ADDR = 0;                  // Global holder for the EEPROM word
+  23                                                 // address that will be accessed in
+  24                                                 // the next transfer
+  25          
+  26          volatile uint8_t TARGET = 0;                             // Target SMBus slave address
+  27          
+  28          
+  29          volatile bit SMB_BUSY = 0;             // Software flag to indicate when the
+  30                                                 // EEPROM_ByteRead() or
+  31                                                 // EEPROM_ByteWrite()
+  32                                                 // functions have claimed the SMBus
+  33          
+  34          volatile bit SMB_RW = 0;                   // Software flag to indicate the
+  35                                                 // direction of the current transfer
+  36          
+  37          volatile bit SMB_SENDWORDADDR = 0;         // When set, this flag causes the ISR
+  38                                                 // to send the 8-bit <WORD_ADDR>
+  39                                                 // after sending the slave address.
+  40          
+  41          
+  42          volatile bit SMB_RANDOMREAD = 0;           // When set, this flag causes the ISR
+  43                                                 // to send a START signal after sending
+  44                                                 // the word address.
+  45                                                 // For the 24LC02B EEPROM, a random read
+  46                                                 // (a read from a particular address in
+  47                                                 // memory) starts as a write then
+  48                                                 // changes to a read after the repeated
+  49                                                 // start is sent. The ISR handles this
+  50                                                 // switchover if the <SMB_RANDOMREAD>
+C51 COMPILER V9.53.0.0   EFM8LB12_SMBUS                                                    07/16/2019 14:28:07 PAGE 2   
+
+  51                                                 // bit is set.
+  52          
+  53          volatile bit SMB_ACKPOLL = 0;          // When set, this flag causes the ISR
+  54                                                 // to send a repeated START until the
+  55                                                 // slave has acknowledged its address
+  56          
+  57          volatile bit SEND_START = 0;          // Send a start
+  58          
+  59          
+  60          volatile uint8_t WORD_ADDR_HIGH = 0;
+  61          volatile uint8_t WORD_ADDR_LOW = 0;
+  62          volatile uint8_t COUNTER  = 0;
+  63          volatile bool    gSingleByteOffsetAddr = true;
+  64          
+  65          #if 0
+              void smb_release_bus(void)
+              {
+                      uint8_t SFRPAGE_SAVE = SFRPAGE, i = 0;
+              
+                      SFRPAGE = 0x0;
+                      while(!SDA)
+                      {
+                              // Provide clock pulses to allow the slave to advance out of its current state. This will allow it to re
+             -lease SDA.
+                              XBR2 = 0x40;                     // Enable Crossbar
+                              SCL = 0;                         // Drive the clock low
+                              for(i = 0; i < 255; i++);        // Hold the clock low
+                              SCL = 1;                         // Release the clock
+                              while(!SCL);                     // Wait for open-drain clock output to rise
+                              for(i = 0; i < 10; i++);         // Hold the clock high
+                              XBR2 = 0x00;                     // Disable Crossbar
+                              UART0_SendString("\r\n  SDA is low");
+                      }
+                      SFRPAGE = SFRPAGE_SAVE;
+              }
+              #endif
+  86          
+  87          uint8_t smb_check_bus_status()
+  88          {
+  89   1              uint8_t i = 0;
+  90   1      
+  91   1              for(i = 0; i < 50; i++)
+  92   1              {
+  93   2                      if(SDA && SCL)
+  94   2                      {
+  95   3                              return RET_OK;
+  96   3                      }
+  97   2                      com_delay(10);
+  98   2              }
+  99   1              return RET_FAILED;
+ 100   1      }
+ 101          
+ 102          void smb_init (void)
+ 103          {
+ 104   1         uint8_t SFRPAGE_SAVE = SFRPAGE;
+ 105   1      
+ 106   1         SFRPAGE = 0x0;
+ 107   1      
+ 108   1         SMB0CF = 0x5C;                      // Use Timer0 overflows as SMBus clock source;
+ 109   1                                             // enable slave mode;
+ 110   1                                             // Enable setup & hold time extensions;
+ 111   1                                             // enable SMBus Free timeout detect;
+ 112   1                                             // enable SCL low timeout detect;
+C51 COMPILER V9.53.0.0   EFM8LB12_SMBUS                                                    07/16/2019 14:28:07 PAGE 3   
+
+ 113   1         SMB0CF |= 0x80;                     // Enable SMBus;
+ 114   1      
+ 115   1         EIE1 |= 0x01;                           // Enable the SMBus interrupt
+ 116   1      
+ 117   1         SFRPAGE  = 0x10;
+ 118   1         EIP1  &= ~0x01;                                         // Make smbus  high priority2,priority3 is the highest priority!
+ 119   1         EIP1H |= 0x01;
+ 120   1      
+ 121   1         SFRPAGE = SFRPAGE_SAVE;
+ 122   1      }
+ 123          
+ 124          uint8_t smb_write_byte(uint8_t BaseAddr,uint16_t OffsetAddr,uint8_t Data)
+ 125          {
+ 126   1         return smb_write_multi_byte(BaseAddr, OffsetAddr, &Data,1);
+ 127   1      }
+ 128          
+ 129          uint8_t smb_write_page_byte(uint8_t BaseAddr, uint8_t page, uint16_t OffsetAddr,uint8_t *Data, uint16_t Le
+             -ngth)
+ 130          {
+ 131   1              uint8_t ret = RET_FAILED;
+ 132   1      
+ 133   1              ret = qsfp28_select_page(I2C_DEVICE_ADDR, SFP_PAGE_SELECT, page);
+ 134   1              JUDGE_RETURN(ret);
+ 135   1              ret = smb_write_multi_byte(BaseAddr, OffsetAddr, Data, Length);
+ 136   1              return ret;
+ 137   1      }
+ 138          
+ 139          uint8_t smb_read_page_byte(uint8_t BaseAddr, uint8_t page, uint16_t OffsetAddr,uint8_t *Data, uint16_t Len
+             -gth)
+ 140          {
+ 141   1              uint8_t ret = RET_FAILED;
+ 142   1      
+ 143   1              ret = qsfp28_select_page(I2C_DEVICE_ADDR, SFP_PAGE_SELECT, page);
+ 144   1              JUDGE_RETURN(ret);
+ 145   1              ret = smb_read_multi_byte(BaseAddr, OffsetAddr, Data, Length);
+ 146   1              return ret;
+ 147   1      }
+ 148          
+ 149          
+ 150          uint8_t smb_write_multi_byte(uint8_t BaseAddr,uint16_t OffsetAddr,uint8_t *Data,uint16_t Length)
+ 151          {
+ 152   1              uint32_t i = 0;
+ 153   1      
+ 154   1              if(Length == 0 || (Data == NULL))
+ 155   1              {
+ 156   2                      return RET_FAILED;
+ 157   2              }
+ 158   1      
+ 159   1              for(i = 0;SMB_BUSY & (i < 0xffff);i++); // Wait for SMBus to be free.
+ 160   1              SMB_BUSY = 1;                       // Claim SMBus (set to busy)
+ 161   1      
+ 162   1         // Set SMBus ISR parameters
+ 163   1         TARGET = BaseAddr;                   // Set target slave address
+ 164   1         SMB_RW = WRITE;                      // Mark next transfer as a write
+ 165   1         SMB_SENDWORDADDR = 1;                // Send Word Address after Slave Address
+ 166   1         SMB_RANDOMREAD = 0;                  // Do not send a START signal after
+ 167   1                                                                                      // the word address
+ 168   1         SMB_ACKPOLL = 1;                     // Enable Acknowledge Polling (The ISR
+ 169   1                                                                                      // will automatically restart the
+ 170   1                                                                                      // transfer if the slave does not
+ 171   1                                                                                      // acknoledge its address.
+ 172   1      
+ 173   1      
+C51 COMPILER V9.53.0.0   EFM8LB12_SMBUS                                                    07/16/2019 14:28:07 PAGE 4   
+
+ 174   1              if(BaseAddr == 0xa8 || BaseAddr == 0xb8 || BaseAddr == 0x24) //12bit offsetaddr
+ 175   1              {
+ 176   2                      WORD_ADDR_HIGH = (OffsetAddr & 0xFF00) >> 8;
+ 177   2                      WORD_ADDR_LOW = OffsetAddr & 0xFF;
+ 178   2                      gSingleByteOffsetAddr = false;
+ 179   2              }
+ 180   1              else
+ 181   1              {
+ 182   2                      WORD_ADDR_LOW = OffsetAddr & 0xFF;
+ 183   2                      gSingleByteOffsetAddr = true;
+ 184   2              }
+ 185   1      
+ 186   1      
+ 187   1         // The outgoing data pointer points to the <dat> variable
+ 188   1         pSMB_DATA_OUT = Data;
+ 189   1      
+ 190   1         SMB_DATA_LEN =  Length;                   // Specify to ISR that the next transfer
+ 191   1                                                                                 // will contain one data byte
+ 192   1      
+ 193   1         // Initiate SMBus Transfer
+ 194   1         SMB0CN0_STA = 1;
+ 195   1         for (i = 0;SMB_BUSY;i++)    // Wait until data write OK
+ 196   1         {
+ 197   2                      if (i >= 0xffff)
+ 198   2                      {
+ 199   3                              printf("\r\nWrite byte timeout,reset smbus");
+ 200   3                              SMB0CF &= ~0x80;                 // Reset communication
+ 201   3                              SMB0CF |= 0x80;
+ 202   3                              SMB0CN0_STA = 0;
+ 203   3                              SMB0CN0_STO = 0;
+ 204   3                              SMB0CN0_ACK = 0;
+ 205   3                              SMB_BUSY = 0;                    // Free SMBus
+ 206   3                              SMB_ACKPOLL = 0;
+ 207   3                              return RET_FAILED;
+ 208   3                      }
+ 209   2              }
+ 210   1         return RET_OK;
+ 211   1      }
+ 212          
+ 213          uint8_t smb_read_byte(uint8_t BaseAddr,uint16_t OffsetAddr,uint8_t *Data)
+ 214          {
+ 215   1              return smb_read_multi_byte(BaseAddr,OffsetAddr,Data,1);
+ 216   1      }
+ 217          
+ 218          uint8_t smb_read_multi_byte(uint8_t BaseAddr,uint16_t OffsetAddr,uint8_t *Pdata,uint16_t Length)
+ 219          {
+ 220   1              uint32_t i = 0;
+ 221   1      
+ 222   1              if(Length == 0 || (Pdata == NULL))
+ 223   1              {
+ 224   2                      return RET_FAILED;
+ 225   2              }
+ 226   1      
+ 227   1              for (i = 0;SMB_BUSY & (i < 0xffff);i++); // Wait for SMBus to be free.
+ 228   1              SMB_BUSY = 1;                       // Claim SMBus (set to busy)
+ 229   1      
+ 230   1              // Set SMBus ISR parameters
+ 231   1              TARGET = BaseAddr;                      // Set target slave address
+ 232   1              SMB_RW = WRITE;                     // A random read starts as a write
+ 233   1                                                                                  // then changes to a read after
+ 234   1                                                                                  // the repeated start is sent. The
+ 235   1                                                                                  // ISR handles this switchover if
+ 236   1                                                                                  // the <SMB_RANDOMREAD> bit is set.
+C51 COMPILER V9.53.0.0   EFM8LB12_SMBUS                                                    07/16/2019 14:28:07 PAGE 5   
+
+ 237   1              SMB_SENDWORDADDR = 1;               // Send Word Address after Slave Address
+ 238   1              SMB_RANDOMREAD = 1;                 // Send a START after the word address
+ 239   1              SMB_ACKPOLL = 1;                    // Enable Acknowledge Polling
+ 240   1      
+ 241   1              if(BaseAddr == 0xa8 || BaseAddr == 0xb8 || BaseAddr == 0x24) //12bit offsetaddr
+ 242   1          {
+ 243   2              WORD_ADDR_HIGH = (OffsetAddr & 0xFF00) >> 8;
+ 244   2              WORD_ADDR_LOW = OffsetAddr & 0xFF;
+ 245   2              gSingleByteOffsetAddr = false;
+ 246   2          }
+ 247   1          else
+ 248   1          {
+ 249   2              WORD_ADDR_LOW = OffsetAddr & 0xFF;
+ 250   2              gSingleByteOffsetAddr = true;
+ 251   2          }
+ 252   1      
+ 253   1              // Set the the incoming data pointer
+ 254   1              pSMB_DATA_IN = Pdata;
+ 255   1              SMB_DATA_LEN = Length;                // Specify to ISR that the next transferwill contain <len> data byt
+             -es
+ 256   1      
+ 257   1              // Initiate SMBus Transfer
+ 258   1              SMB0CN0_STA = 1;
+ 259   1              for(i = 0;SMB_BUSY;i++)                       // Wait until data is read
+ 260   1              {
+ 261   2                      if (i >= 0xffff)
+ 262   2                      {
+ 263   3                              printf("\r\nRead multi type timeout,reset smbus");
+ 264   3                              SMB0CF &= ~0x80;           // Reset communication
+ 265   3                              SMB0CF |= 0x80;
+ 266   3                              SMB0CN0_STA = 0;
+ 267   3                              SMB0CN0_STO = 0;
+ 268   3                              SMB0CN0_ACK = 0;
+ 269   3                              SMB_BUSY = 0;              // Free SMBus
+ 270   3                              SMB_ACKPOLL = 0;
+ 271   3                              return RET_FAILED;
+ 272   3                      }
+ 273   2              }
+ 274   1              return RET_OK;
+ 275   1      }
+ 276          
+ 277          
+ 278          uint8_t smb_read_multi_byte_test(uint8_t BaseAddr,uint16_t OffsetAddr,uint8_t *Pdata,uint16_t Length)
+ 279          {
+ 280   1              uint32_t i = 0;
+ 281   1      
+ 282   1              for (i = 0;SMB_BUSY;i++); // Wait for SMBus to be free.
+ 283   1              SMB_BUSY = 1;                       // Claim SMBus (set to busy)
+ 284   1      
+ 285   1              // Set SMBus ISR parameters
+ 286   1              TARGET = BaseAddr;                      // Set target slave address
+ 287   1              SMB_RW = WRITE;                     // A random read starts as a write
+ 288   1                                                                                  // then changes to a read after
+ 289   1                                                                                  // the repeated start is sent. The
+ 290   1                                                                                  // ISR handles this switchover if
+ 291   1                                                                                  // the <SMB_RANDOMREAD> bit is set.
+ 292   1              SMB_SENDWORDADDR = 1;               // Send Word Address after Slave Address
+ 293   1              SMB_RANDOMREAD = 1;                 // Send a START after the word address
+ 294   1              SMB_ACKPOLL = 0;                    // Enable Acknowledge Polling
+ 295   1      
+ 296   1              if(BaseAddr == 0xa8 || BaseAddr == 0xb8 || BaseAddr == 0x24) //12bit offsetaddr
+ 297   1          {
+ 298   2              WORD_ADDR_HIGH = (OffsetAddr & 0xFF00) >> 8;
+C51 COMPILER V9.53.0.0   EFM8LB12_SMBUS                                                    07/16/2019 14:28:07 PAGE 6   
+
+ 299   2              WORD_ADDR_LOW = OffsetAddr & 0xFF;
+ 300   2              gSingleByteOffsetAddr = false;
+ 301   2          }
+ 302   1          else
+ 303   1          {
+ 304   2              WORD_ADDR_LOW = OffsetAddr & 0xFF;
+ 305   2              gSingleByteOffsetAddr = true;
+ 306   2          }
+ 307   1      
+ 308   1              // Set the the incoming data pointer
+ 309   1              pSMB_DATA_IN = Pdata;
+ 310   1              SMB_DATA_LEN = Length;                // Specify to ISR that the next transferwill contain <len> data byt
+             -es
+ 311   1      
+ 312   1              // Initiate SMBus Transfer
+ 313   1              SMB0CN0_STA = 1;
+ 314   1      
+ 315   1              /*
+ 316   1              for(i = 0;SMB_BUSY;i++)                       // Wait until data is read
+ 317   1              {
+ 318   1                      if (i >= 0xfffff)
+ 319   1                      {
+ 320   1                              printf("\r\nRead multi type timeout,reset smbus");
+ 321   1                              SMB0CF &= ~0x80;           // Reset communication
+ 322   1                              SMB0CF |= 0x80;
+ 323   1                              SMB0CN0_STA = 0;
+ 324   1                              SMB0CN0_STO = 0;
+ 325   1                              SMB0CN0_ACK = 0;
+ 326   1                              SMB_BUSY = 0;              // Free SMBus
+ 327   1                              SMB_ACKPOLL = 0;
+ 328   1                              return RET_FAILED;
+ 329   1                      }
+ 330   1              }
+ 331   1              */
+ 332   1      
+ 333   1              return RET_OK;
+ 334   1      }
+ 335          
+ 336          void smb_reset(void)
+ 337          {
+ 338   1              SMB0CF &= ~0x80;           // Reset communication
+ 339   1              SMB0CF |= 0x80;
+ 340   1              SMB0CN0_STA = 0;
+ 341   1              SMB0CN0_STO = 0;
+ 342   1              SMB0CN0_ACK = 0;
+ 343   1              SMB_BUSY = 0;              // Free SMBus
+ 344   1      }
+ 345          
+ 346          
+ 347          
+ 348          SI_INTERRUPT(SMBUS0_ISR, SMBUS0_IRQn)
+ 349          {
+ 350   1              bit FAIL = 0;                           // Used by the ISR to flag failed transfers
+ 351   1              static uint16_t i = 0;                  // Used by the ISR to count the number of data bytes sent or received
+ 352   1      
+ 353   1         if (SMB0CN0_ARBLOST == 0)            // Check for errors
+ 354   1         {
+ 355   2                 //EIE1 &= ~0x01;                               //disable SMbus intertupt
+ 356   2                 switch (SMB0CN0 & 0xF0)             // Status vector
+ 357   2                 {
+ 358   3                        // Master Transmitter/Receiver: START condition transmitted.
+ 359   3                        case SMB_MTSTA:
+ 360   3                               SMB0DAT = TARGET;             // Load address of the target slave
+C51 COMPILER V9.53.0.0   EFM8LB12_SMBUS                                                    07/16/2019 14:28:07 PAGE 7   
+
+ 361   3                               SMB0DAT &= 0xFE;              // Clear the LSB of the address for the
+ 362   3                                                                                         // R/W bit
+ 363   3                               SMB0DAT |= SMB_RW;            // Load R/W bit
+ 364   3                               SMB0CN0_STA = 0;               // Manually clear START bit
+ 365   3                               i = 0;                        // Reset data byte counter
+ 366   3                               break;
+ 367   3      
+ 368   3                        // Master Transmitter: Data byte (or Slave Address) transmitted
+ 369   3                        case SMB_MTDB:
+ 370   3                               if (SMB0CN0_ACK)               // Slave Address or Data Byte Acknowledged
+ 371   3                               {
+ 372   4                                       if (SEND_START)
+ 373   4                                      {
+ 374   5                                         SMB0CN0_STA = 1;
+ 375   5                                         SEND_START = 0;
+ 376   5                                         break;
+ 377   5                                      }
+ 378   4                                      if(SMB_SENDWORDADDR)       // Are we sending the word address?
+ 379   4                                      {
+ 380   5                                         if(gSingleByteOffsetAddr)
+ 381   5                                         {
+ 382   6                                                 SMB_SENDWORDADDR = 0;                // Clear flag
+ 383   6                                                 SMB0DAT = WORD_ADDR_LOW;     // Send word address
+ 384   6      
+ 385   6                                                 if (SMB_RANDOMREAD)
+ 386   6                                                 {
+ 387   7                                                        SEND_START = 1;      // Send a START after the next SMB0CN_ACK cycle,因为已经把baseaddr和offsetadd
+             -r发送结束了，所以下个循环重新发送一个Start信号
+ 388   7                                                        SMB_RW = READ;
+ 389   7                                                 }
+ 390   6                                                 break;
+ 391   6                                         }
+ 392   5                                         else
+ 393   5                                         {
+ 394   6                                                 COUNTER++;
+ 395   6                                                 if(COUNTER == 1)
+ 396   6                                                 {
+ 397   7                                                         SMB0DAT = WORD_ADDR_HIGH;    // Send word address high byte
+ 398   7                                                 }
+ 399   6                                                 if(COUNTER == 2)
+ 400   6                                                 {
+ 401   7                                                         COUNTER = 0;
+ 402   7                                                         SMB_SENDWORDADDR = 0;       // Clear flag
+ 403   7                                                         SMB0DAT = WORD_ADDR_LOW;    // Send word address low byte
+ 404   7                                                         if (SMB_RANDOMREAD)
+ 405   7                                                         {
+ 406   8                                                                SEND_START = 1;          // Send a START after the next SMB0CN_ACK cycle,因为已经把baseaddr和offs
+             -etaddr发送结束了，所以下个循环重新发送一个Start信号
+ 407   8                                                                SMB_RW = READ;
+ 408   8                                                         }
+ 409   7                                                 }
+ 410   6                                                 break;
+ 411   6                                         }
+ 412   5                                      }
+ 413   4      
+ 414   4                                      if (SMB_RW == WRITE)         // Is this transfer a WRITE?
+ 415   4                                      {
+ 416   5                                         if (i < SMB_DATA_LEN)   // Is there data to send?
+ 417   5                                         {
+ 418   6                                                // send data byte
+ 419   6                                                SMB0DAT = *pSMB_DATA_OUT;
+ 420   6      
+ 421   6                                                // increment data out pointer
+C51 COMPILER V9.53.0.0   EFM8LB12_SMBUS                                                    07/16/2019 14:28:07 PAGE 8   
+
+ 422   6                                                pSMB_DATA_OUT++;
+ 423   6      
+ 424   6                                                // increment number of bytes sent
+ 425   6                                                i++;
+ 426   6                                         }
+ 427   5                                         else                           // This is the last byte
+ 428   5                                         {
+ 429   6                                               SMB0CN0_STO = 1;      // Set SMB0CN_STO to terminte transfer
+ 430   6                                               SMB_BUSY = 0;         // Clear software busy flag
+ 431   6                                         }
+ 432   5                                      }
+ 433   4                                      else {}                    // If this transfer is a READ,
+ 434   4                                                                                         // then take no action. Slave
+ 435   4                                                                                         // address was transmitted. A
+ 436   4                                                                                         // separate 'case' is defined
+ 437   4                                                                                         // for data byte recieved.
+ 438   4                               }
+ 439   3                               else                          // If slave NACK,
+ 440   3                               {
+ 441   4                                      if(SMB_ACKPOLL)
+ 442   4                                      {
+ 443   5                                         SMB0CN0_STA = 1;        // Restart transfer
+ 444   5                                         //由于在i2c通信的过程中，对方设备正在处理其他的事情，可能不能及时回i2c的ack，从而导致通信失败，为了
+             -保持通信的正确性，这里应该反复请求,如果只
+ 445   5                                         //只访问50次，实验证明，会存在大量的地址写入失败,但是这里又不能一直等待，这样会造成程序卡死，然后不
+             -能依次读取基地址,解决方案这里一直去请求，在读写函数里
+ 446   5                                         //去做判断，如果超过3s没有回复，即将SMB0CN_STA = 0
+ 447   5                                      }
+ 448   4                                      else
+ 449   4                                      {
+ 450   5                                         FAIL = 1;               // Indicate failed transfer
+ 451   5                                      }                          // and handle at end of ISR
+ 452   4                               }
+ 453   3                               break;
+ 454   3      
+ 455   3                        // Master Receiver: byte received
+ 456   3                        case SMB_MRDB:
+ 457   3                               if (++i < SMB_DATA_LEN)        // Is there any data remaining?
+ 458   3                               {
+ 459   4                                      *pSMB_DATA_IN = SMB0DAT;   // Store received byte
+ 460   4                                      pSMB_DATA_IN++;            // Increment data in pointer
+ 461   4                                      SMB0CN0_ACK = 1;           // Set SMB0CN_ACK bit (may be cleared later in the code)
+ 462   4                               }
+ 463   3                               else                                      // This is the last byte
+ 464   3                               {
+ 465   4                                      *pSMB_DATA_IN = SMB0DAT;   // Store received byte
+ 466   4                                      SMB_BUSY = 0;              // Free SMBus interface
+ 467   4                                      SMB0CN0_ACK = 0;           // Send NACK to indicate last byte of this transfer
+ 468   4                                      SMB0CN0_STO = 1;           // Send STOP to terminate transfer
+ 469   4                               }
+ 470   3                               break;
+ 471   3                        default:
+ 472   3                               FAIL = 1;                     // Indicate failed transfer  and handle at end of ISR;
+ 473   3                               break;
+ 474   3                 }
+ 475   2         }
+ 476   1         else
+ 477   1         {
+ 478   2                       FAIL = 1;                     // Indicate failed transfer  and handle at end of ISR;
+ 479   2         }
+ 480   1      
+ 481   1         if (FAIL)                           // If the transfer failed,
+ 482   1         {
+C51 COMPILER V9.53.0.0   EFM8LB12_SMBUS                                                    07/16/2019 14:28:07 PAGE 9   
+
+ 483   2                SMB0CF &= ~0x80;                 // Reset communication
+ 484   2                SMB0CF |= 0x80;
+ 485   2                SMB0CN0_STA = 0;
+ 486   2                SMB0CN0_STO = 0;
+ 487   2                SMB0CN0_ACK = 0;
+ 488   2                SMB_BUSY = 0;                    // Free SMBus
+ 489   2                FAIL = 0;
+ 490   2         }
+ 491   1               SMB0CN0_SI = 0;                             // Clear interrupt flag
+ 492   1              // EIE1 |= 0x01;
+ 493   1      }
+ 494          
+ 495          
+ 496          #else
+              
+              
+              #define DECL_PAGE uint8_t savedPage
+              volatile bit SMB_BUSY = 0;
+              // enter autopage section
+              #define SET_PAGE(p)     do                                                    \
+                                      {                                                     \
+                                        savedPage = SFRPAGE;  /* save current SFR page */   \
+                                        SFRPAGE = (p);        /* set SFR page */            \
+                                      } while(0)
+              // exit autopage section
+              #define RESTORE_PAGE    do                                                    \
+                                      {                                                     \
+                                        SFRPAGE = savedPage;  /* restore saved SFR page */  \
+                                      } while(0)
+              static void smb_end()
+              {
+                      DECL_PAGE;
+                      SET_PAGE(0x00);
+                      SMB0CN0_STO=1;
+                      RESTORE_PAGE;
+                      SMB0CN0_SI=0;
+                      com_delay_us(25);
+                      return ;
+              }
+              static void smb_send_ack()
+              {
+                      DECL_PAGE;
+                      SET_PAGE(0x00);
+                      SMB0CN0_ACK=1;
+                      RESTORE_PAGE;
+                      return ;
+              }
+              static bit smb_start(uint8_t addr,bit opt)
+              {
+                      uint8_t i = 0xFF,devaddr=addr|opt;
+                      DECL_PAGE;
+                      SET_PAGE(0x00);
+                      SMB0CN0_SI=0;
+                      SMB0CN0_STA=1;
+                      for(i=3;(SMB0CN0_SI != 1)&&(i);i--)
+                      {
+                              com_delay_us(5);
+                      }//START OK
+                      SMB0DAT=devaddr;
+                      SMB0CN0_STA=0;
+                      SMB0CN0_SI=0;
+                      for(i=15;(SMB0CN0_SI != 1)&&(i);i--)
+                      {
+C51 COMPILER V9.53.0.0   EFM8LB12_SMBUS                                                    07/16/2019 14:28:07 PAGE 10  
+
+                              com_delay_us(5);
+                      }//START OK
+                      if(READ == opt)
+                              SMB0CN0_SI=0;
+                      for(i=10;(!SMB0CN0_ACK)&&(i);i--)
+                      {
+                              com_delay_us(5);
+                      }//DEV ADDR OK
+                      RESTORE_PAGE;
+                      if(0 == SMB0CN0_ACK)
+                      {
+                              return (0);
+                      }
+                      return RET_OK;
+              }
+              
+              static uint8_t _smb_writebyte(uint8_t Data)
+              {
+                      uint8_t i = 0xFF;
+                      DECL_PAGE;
+                      SET_PAGE(0x00);
+                      SMB0DAT=Data;
+                      SMB0CN0_SI = 0;
+                      for(i=15;(SMB0CN0_SI != 1)&&(i);i--)
+                      {
+                              com_delay_us(5);
+                      }//START OK
+                      for(i=25;(!SMB0CN0_ACK)&&(i);i--)
+                      {
+                              com_delay_us(5);
+                      }//DEV ADDR OK
+                      if(0 == SMB0CN0_ACK)
+                      {
+                              return RET_FAILED;
+                      }
+                      RESTORE_PAGE;
+                      return RET_OK;
+              }
+              static uint8_t _smb_readbyte(bit islast)
+              {
+                      uint8_t i = 0xFF,Data = 0;
+                      DECL_PAGE;
+                      SET_PAGE(0x00);
+                      for(i=20;(SMB_MASTER_RXDATA != SMB0CN0 & 0xF0)&&(i);i--)
+                      {
+                              com_delay_us(5);
+                      }
+                      for(i=20;(SMB0CN0_SI != 1)&&(i);i--)
+                      {
+                              com_delay_us(5);
+                      }//START OK
+                      Data = SMB0DAT;
+                      if(true == islast)
+                      {
+                              SMB0CN0_ACK = 0;
+                              SMB0CN0_STO     = 1;
+                      }
+                      else
+                              SMB0CN0_ACK = 1;
+                      SMB0CN0_SI = 0;
+                      if(0 == i)
+                              return (0);
+                      RESTORE_PAGE;
+C51 COMPILER V9.53.0.0   EFM8LB12_SMBUS                                                    07/16/2019 14:28:07 PAGE 11  
+
+                      return (Data);
+              }
+              int8_t smb_write(uint8_t BaseAddr,uint16_t OffsetAddr,uint8_t *Data,uint8_t Length)
+              {
+                      uint8_t i = 0;
+              
+                      if(smb_start(BaseAddr,WRITE)== 0)
+                      {
+                              smb_end();
+                              return RET_FAILED;
+                      }
+              
+                      if(BaseAddr == 0xa8 || BaseAddr == 0xb8 || BaseAddr == 0x24)
+                      {
+                              _smb_writebyte(OffsetAddr&0xFF00 >> 8);//HIGH ADDR
+                              _smb_writebyte(OffsetAddr&0xFF);//LOW ADDR
+                      }
+                      else
+                      {
+                              _smb_writebyte(OffsetAddr&0xFF);
+                      }
+                      for(i = 0;i < Length; i++)
+                      {
+                              _smb_writebyte(Data[i]);
+                      }
+                      smb_end();
+                      return (RET_OK);
+              }
+              int8_t smb_read(uint8_t BaseAddr,uint16_t OffsetAddr,uint8_t *Data,uint8_t Length)
+              {
+                      uint8_t i = 0;
+                      uint8_t high_addr = (OffsetAddr & 0xFF00)>>8;
+                      uint8_t low_addr = OffsetAddr & 0xFF;
+              
+                      if(smb_start(BaseAddr,WRITE)==0)
+                      {
+                              smb_end();
+                              return RET_FAILED;
+                      }
+              
+                      if(BaseAddr == 0xa8 || BaseAddr == 0xb8 || BaseAddr == 0x24)
+                      {
+                              _smb_writebyte(high_addr);//HIGH ADDR
+                              _smb_writebyte(low_addr);//LOW ADDR
+                      }else
+                      {
+                              _smb_writebyte(low_addr);
+                      }
+                      if(smb_start(BaseAddr,READ)==0)
+                      {
+                              return RET_FAILED;
+                      }
+                      for(i=0;i<Length-1;i++)
+                      {
+                              Data[i] = _smb_readbyte(0);
+                              smb_send_ack();
+                      }
+                      Data[i] = _smb_readbyte(1);
+                      smb_end();
+                      return RET_OK;
+              }
+              int8_t smb_check_bus_status()
+              {
+C51 COMPILER V9.53.0.0   EFM8LB12_SMBUS                                                    07/16/2019 14:28:07 PAGE 12  
+
+                      uint8_t i = 0;
+              
+                      for(i = 0; i < 50; i++)
+                      {
+                              if(SDA && SCL)
+                              {
+                                      return RET_OK;
+                              }
+                              com_delay(10);
+                      }
+                      return RET_FAILED;
+              }
+              
+              void smb_init (void)
+              {
+                 uint8_t SFRPAGE_SAVE = SFRPAGE;
+              
+                 SFRPAGE = 0x0;
+              
+                 SMB0CF = 0x5C;                      // Use Timer0 overflows as SMBus clock source;
+                                                     // enable slave mode;
+                                                     // Enable setup & hold time extensions;
+                                                     // enable SMBus Free timeout detect;
+                                                     // enable SCL low timeout detect;
+                 SMB0CF |= 0x80;                     // Enable SMBus;
+              
+                 EIE1 &= ~0x01;                          // Disable the SMBus interrupt
+              
+                 SFRPAGE  = 0x10;
+                 //EIP1  &= ~0x01;                                       // Make smbus  high priority2,priority3 is the highest priority!
+                 //EIP1H |= 0x01;
+              
+                 SFRPAGE = SFRPAGE_SAVE;
+              }
+              int8_t smb_write_byte(uint8_t BaseAddr,uint16_t OffsetAddr,uint8_t Data)
+              {
+              
+                 return (smb_write(BaseAddr,OffsetAddr,&Data,1));
+              }
+              
+              int8_t smb_read_byte(uint8_t BaseAddr,uint16_t OffsetAddr,uint8_t *Data)
+              {
+                      return (smb_read(BaseAddr,OffsetAddr,Data,1));
+              }
+              
+              int8_t smb_read_multi_byte(uint8_t BaseAddr,uint16_t OffsetAddr,uint8_t *Pdata,uint8_t Length)
+              {
+                      return (smb_read(BaseAddr,OffsetAddr,Pdata,Length));
+              }
+              int8_t   smb_read_multi_byte2(uint8_t BaseAddr,uint16_t OffsetAddr,uint8_t *Pdata,uint8_t Length)
+              {
+                      return (smb_read(BaseAddr,OffsetAddr,Pdata,Length));
+              }
+              int8_t smb_write_multi_byte(uint8_t BaseAddr,uint16_t OffsetAddr,uint8_t *Pdata,uint8_t Length)
+              {
+                      return (smb_write(BaseAddr,OffsetAddr,Pdata,Length));
+              }
+              
+              #endif
+ 731          
+ 732          
+
+
+C51 COMPILER V9.53.0.0   EFM8LB12_SMBUS                                                    07/16/2019 14:28:07 PAGE 13  
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1463    ----
+   CONSTANT SIZE    =     71    ----
+   XDATA SIZE       =     16      52
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      7       1
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

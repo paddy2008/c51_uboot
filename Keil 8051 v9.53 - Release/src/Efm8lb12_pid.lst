@@ -1,0 +1,80 @@
+C51 COMPILER V9.53.0.0   EFM8LB12_PID                                                      10/09/2019 13:50:19 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE EFM8LB12_PID
+OBJECT MODULE PLACED IN .\src\Efm8lb12_pid.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\src\Efm8lb12_pid.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOATFUZZY(
+                    -3) OPTIMIZE(9,SPEED) DEFINE(NDEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(D:/Work Project/SingleChipWorkSpaveNew/C51_UBO
+                    -OT/inc;D:/Work Project/SingleChipWorkSpaveNew/C51_UBOOT/mcu_sal_lib;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si
+                    -8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:/Silicon
+                    -Labs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/
+                    -si8051/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/peripheral_driver
+                    -/inc) REGFILE(C51_UBOOT.ORC) PRINT(.\src\Efm8lb12_pid.lst) COND PAGEWIDTH(120) PAGELENGTH(65) OBJECT(.\src\Efm8lb12_pid.
+                    -OBJ)
+
+line level    source
+
+   1          //#include "Efm8lb12_pid.h"
+   2          #include "Efm8lb12_adc.h"
+   3          #include "mcu_sal.h"
+   4          #include "dac_3.h"
+   5          
+   6          #define DAC_MAX_RESULT  ((1 << 12)-1)
+   7          
+   8          //903 test board pin define
+   9          SI_SBIT (TEC_EN, SFR_P0, 3);            //TEC enable or disable
+  10          SI_SBIT (TX_DIS, SFR_P3, 2);            //TX close single
+  11          
+  12          static void pid_set_hw_output(uint16_t output)
+  13          {
+  14   1              uint16_t dac_verf_mv = 0, dac_value = 0;
+  15   1      
+  16   1              dac_verf_mv = adc_get_value(ADC0_VCC);
+  17   1              dac_value = (uint16_t)((float)output/dac_verf_mv * DAC_MAX_RESULT) & DAC_MAX_RESULT;
+  18   1      
+  19   1              DAC3_setOutput(dac_value);
+  20   1      }
+  21          
+  22          void pid_hw_init(PID_CONF_PARA *conf)
+  23          {
+  24   1              flash_read(MSA_FLASH_ADDR_PAGE_00H, (uint8_t *)&conf->targetValue, 2);
+  25   1      
+  26   1              pid_conf(conf);
+  27   1      }
+  28          
+  29          void pid_hw_run()
+  30          {
+  31   1              uint16_t tec_temp = 0;
+  32   1      
+  33   1              if (!(TX_DIS == 0) && (TEC_EN == 1))
+  34   1              {
+  35   2                      return;
+  36   2              }
+  37   1      
+  38   1              tec_temp = adc_get_value(ADC0_TEC_TEMPOUT);
+  39   1      
+  40   1              pid_set_hw_output(pid_get_cal_val(tec_temp));
+  41   1      }
+  42          
+  43          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    170    ----
+   CONSTANT SIZE    =   ----    ----
+C51 COMPILER V9.53.0.0   EFM8LB12_PID                                                      10/09/2019 13:50:19 PAGE 2   
+
+   XDATA SIZE       =   ----       7
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

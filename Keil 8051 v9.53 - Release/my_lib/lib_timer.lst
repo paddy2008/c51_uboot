@@ -1,0 +1,230 @@
+C51 COMPILER V9.53.0.0   LIB_TIMER                                                         07/29/2019 17:24:00 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE LIB_TIMER
+OBJECT MODULE PLACED IN .\my_lib\lib_timer.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\my_lib\lib_timer.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOATFUZZY(
+                    -3) OPTIMIZE(9,SPEED) DEFINE(NDEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(D:/Work Project/SingleChipWorkSpaveNew/C51_UBO
+                    -OT/inc;D:/Work Project/SingleChipWorkSpaveNew/C51_UBOOT/my_lib;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/
+                    -v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:/SiliconLabs/
+                    -SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si805
+                    -1/v3//Lib/efm8_assert;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/peripheral_driver/inc)
+                    - REGFILE(C51_UBOOT.ORC) PRINT(.\my_lib\lib_timer.lst) COND PAGEWIDTH(120) PAGELENGTH(65) OBJECT(.\my_lib\lib_timer.OBJ)
+
+line level    source
+
+   1          #include "lib_timer.h"
+   2          
+   3          static TIMER_LSIT_T timer_list;
+   4          
+   5          /*
+   6           * when timer_list.jiffies is setted 0, there must be init timer_list.timer[i]->expires again
+   7           */
+   8          static void _timer_jiffies_zero_by_isr(uint32_t timeout)
+   9          {
+  10   1              uint8_t i = 0;
+  11   1              //JIFFIES_MAX - (timeout + timer_list.jiffies) > timeout;
+  12   1              if(JIFFIES_MAX - timer_list.jiffies < 2 * timeout)
+  13   1              {
+  14   2                      timer_list.jiffies = 0;
+  15   2      
+  16   2                      for(i = 0; i < timer_list.num; i++)
+  17   2                      {
+  18   3                              if(timer_list.timer[i]->function != NULL)
+  19   3                              {
+  20   4                                      timer_list.timer[i]->expires = timer_list.timer[i]->timeout;
+  21   4                              }
+  22   3                      }
+  23   2              }
+  24   1      }
+  25          
+  26          /*
+  27           * when timer_list.jiffies is setted 0, there must be init timer_list.timer[i]->expires again
+  28           */
+  29          static void _timer_jiffies_zero(uint32_t timeout)
+  30          {
+  31   1              uint8_t i = 0;
+  32   1              //JIFFIES_MAX - (timeout + timer_list.jiffies) > timeout;
+  33   1              if(JIFFIES_MAX - timer_list.jiffies < 2 * timeout)
+  34   1              {
+  35   2                      timer_list.jiffies = 0;
+  36   2      
+  37   2                      for(i = 0; i < timer_list.num; i++)
+  38   2                      {
+  39   3                              if(timer_list.timer[i]->function != NULL)
+  40   3                                      timer_list.timer[i]->expires = timer_list.timer[i]->timeout; //because timer_list.jiffies = 0, timer_l
+             -ist.timer[i]->expires = timer_list.timer[i]->timeout + 0(timer_list.jiffies)
+  41   3                      }
+  42   2              }
+  43   1      }
+  44          
+  45          /*
+  46           * save new tiner struct, there must be expires = jiffts + varible, because when jiffts = 0, expires is al
+             -so changed
+  47           */
+C51 COMPILER V9.53.0.0   LIB_TIMER                                                         07/29/2019 17:24:00 PAGE 2   
+
+  48          void timer_add(TIMER_STRUCT_T *timer, TIMER_FUNC func, uint32_t timeout)
+  49          {
+  50   1              if((timer != NULL) && (timer_list.num < TIMER_NUM))
+  51   1              {
+  52   2                      timer_list.timer[timer_list.num] = timer;
+  53   2              }
+  54   1              else
+  55   1              {
+  56   2                      return;
+  57   2              }
+  58   1      
+  59   1              timer_list.timer[timer_list.num]->enable           = 0;        //add new timer default state is disable
+  60   1              timer_list.timer[timer_list.num]->timeout_flag = false;
+  61   1              timer_list.timer[timer_list.num]->function     = func;
+  62   1              timer_list.timer[timer_list.num]->timeout      = timeout;
+  63   1      
+  64   1              _timer_jiffies_zero(timeout);
+  65   1              timer_list.timer[timer_list.num]->expires  = timeout + timer_list.jiffies;
+  66   1      
+  67   1              timer_list.num ++;
+  68   1      }
+  69          
+  70          /*
+  71           * modify the software timer timeout time
+  72           */
+  73          static void _timer_mod(TIMER_STRUCT_T * timer, uint32_t timeout)
+  74          {
+  75   1              if(timer == NULL)
+  76   1              {
+  77   2                      return;
+  78   2              }
+  79   1      
+  80   1              _timer_jiffies_zero_by_isr(timeout);
+  81   1              timer->timeout  = timeout;
+  82   1              timer->expires  = timeout + timer_list.jiffies;
+  83   1      }
+  84          
+  85          void timer_init(void)
+  86          {
+  87   1              uint8_t i = 0;
+  88   1      
+  89   1              for(i = 0; i < TIMER_NUM; i++)
+  90   1              {
+  91   2                      timer_list.timer[i] = NULL;
+  92   2              }
+  93   1      
+  94   1              timer_list.num     = 0;
+  95   1              timer_list.jiffies = 0;
+  96   1      
+  97   1              lib_timer_init();
+  98   1      }
+  99          
+ 100          /*
+ 101           * start soft timer
+ 102           */
+ 103          void timer_start(TIMER_STRUCT_T * timer)
+ 104          {
+ 105   1              if(timer != NULL)
+ 106   1              {
+ 107   2                      timer->enable = 1;
+ 108   2              }
+ 109   1      }
+ 110          
+C51 COMPILER V9.53.0.0   LIB_TIMER                                                         07/29/2019 17:24:00 PAGE 3   
+
+ 111          /*
+ 112           * stop soft timer
+ 113           */
+ 114          void timer_stop(TIMER_STRUCT_T * timer)
+ 115          {
+ 116   1              if(timer != NULL)
+ 117   1              {
+ 118   2                      timer->enable = 0;
+ 119   2              }
+ 120   1      }
+ 121          
+ 122          /*max delay 65¡£535s*/
+ 123          void timer_delay_ms(uint16_t ms)
+ 124          {
+ 125   1              uint32_t current_time = 0;
+ 126   1              uint8_t i = 0, timer_enable_save[TIMER_NUM];
+ 127   1      
+ 128   1          _timer_jiffies_zero(ms);
+ 129   1      
+ 130   1          //disable all timer_list, in order to prevent current_time = JIFFIES_MAX, timer_list.jiffies is setted
+             - 0 right now
+ 131   1          for(i = 0; (timer_list.timer[i] != NULL) && (i < timer_list.num); i++)
+ 132   1          {
+ 133   2              timer_enable_save[i] = timer_list.timer[i]->enable;
+ 134   2              timer_list.timer[i]->enable = 0;
+ 135   2          }
+ 136   1      
+ 137   1              current_time = timer_list.jiffies;
+ 138   1          while(timer_list.jiffies <  ms + current_time);
+ 139   1      
+ 140   1          //restore all timer_list status
+ 141   1          for(i = 0; (timer_list.timer[i] != NULL) && (i < timer_list.num); i++)
+ 142   1          {
+ 143   2                      timer_list.timer[i]->enable = timer_enable_save[i];
+ 144   2          }
+ 145   1      }
+ 146          
+ 147          void timer_run(void)
+ 148          {
+ 149   1              uint8_t i = 0;
+ 150   1      
+ 151   1              for(i = 0; (timer_list.timer[i] != NULL) && (i < timer_list.num); i++)
+ 152   1              {
+ 153   2                      if(timer_list.timer[i]->timeout_flag)
+ 154   2                      {
+ 155   3                              timer_list.timer[i]->function();
+ 156   3                              timer_list.timer[i]->timeout_flag = false;
+ 157   3                      }
+ 158   2              }
+ 159   1      }
+ 160          
+ 161          uint32_t timer_get_tick(void)
+ 162          {
+ 163   1              return timer_list.jiffies;
+ 164   1      }
+ 165          
+ 166          void timer_update(void)
+ 167          {
+ 168   1              uint8_t i = 0;
+ 169   1      
+ 170   1              for(i = 0; (timer_list.timer[i] != NULL) && (i < timer_list.num); i++)
+ 171   1              {
+ 172   2                      if((timer_list.timer[i]->enable) && (timer_list.timer[i]->expires <= timer_list.jiffies))
+C51 COMPILER V9.53.0.0   LIB_TIMER                                                         07/29/2019 17:24:00 PAGE 4   
+
+ 173   2                      {
+ 174   3                              timer_list.timer[i]->timeout_flag = true;
+ 175   3                              _timer_mod(timer_list.timer[i], timer_list.timer[i]->timeout); //update timeout time
+ 176   3                      }
+ 177   2              }
+ 178   1      
+ 179   1              timer_list.jiffies ++;
+ 180   1      }
+ 181          
+ 182          
+ 183          
+ 184          
+ 185          
+ 186          
+ 187          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1043    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     35      52
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

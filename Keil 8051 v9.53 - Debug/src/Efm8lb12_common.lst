@@ -1,0 +1,295 @@
+C51 COMPILER V9.53.0.0   EFM8LB12_COMMON                                                   07/16/2019 15:41:45 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE EFM8LB12_COMMON
+OBJECT MODULE PLACED IN .\src\Efm8lb12_common.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v3\developer\toolchains\keil_8051\9.53\BIN\C51.exe D:\Work Project\
+                    -SingleChipWorkSpaveNew\C51_UBOOT\src\Efm8lb12_common.c OMF2 LARGE DEBUG OBJECTEXTEND ROM(LARGE) WARNINGLEVEL(2) FLOATFUZ
+                    -ZY(3) OPTIMIZE(8,SPEED) DEFINE(DEBUG=1) INTVECTOR(0X0000) INTPROMOTE INCDIR(C:/SiliconLabs/SimplicityStudio/v3/developer
+                    -/sdks/si8051/v3//Device/shared/si8051Base;C:/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1;C:
+                    -/SiliconLabs/SimplicityStudio/v3/developer/sdks/si8051/v3//Device/EFM8LB1/inc) PRINT(.\src\Efm8lb12_common.lst) COND PAG
+                    -EWIDTH(120) PAGELENGTH(65) OBJECT(.\src\Efm8lb12_common.OBJ)
+
+line level    source
+
+   1          #include "Efm8lb12_common.h"
+   2          #include "Efm8lb12_qsfp28.h"
+   3          #include "lib_c51_timer.h"
+   4          #include "lib_c51_i2c_master.h"
+   5          #include "lib_c51_uart.h"
+   6          #include <string.h>  //for strlen
+   7          #include <stdlib.h>  //for atoi
+   8          #include <math.h>
+   9          
+  10          uint8_t _qsfp28_get_channel(const char  *s)
+  11          {
+  12   1              uint8_t channel = -1;
+  13   1      
+  14   1              if (!strcmp(s, "ch0"))
+  15   1              {
+  16   2                      channel = CHANNEL0;
+  17   2              }
+  18   1              else if (!strcmp(s, "ch1"))
+  19   1              {
+  20   2                      channel = CHANNEL1;
+  21   2              }
+  22   1              else if (!strcmp(s, "ch2"))
+  23   1              {
+  24   2                      channel = CHANNEL2;
+  25   2              }
+  26   1              else if (!strcmp(s, "ch3"))
+  27   1              {
+  28   2                      channel = CHANNEL3;
+  29   2              }
+  30   1              else if (!strcmp(s, "all"))
+  31   1              {
+  32   2                      channel = CHANNEL_MAX;
+  33   2              }
+  34   1              else
+  35   1              {
+  36   2                      channel = RET_FAILED;
+  37   2                      printf("\r\nchannedl%bu is not support\r\n",channel);
+  38   2              }
+  39   1              return channel;
+  40   1      }
+  41          
+  42          static uint16_t _com_int_pow(uint8_t m, uint8_t n)
+  43          {
+  44   1              uint8_t i = 0;
+  45   1              uint16_t result = 1;
+  46   1      
+  47   1              for ( i = 0; i < n; i++)
+  48   1              {
+  49   2                      result *= m;
+  50   2              }
+  51   1              return result;
+C51 COMPILER V9.53.0.0   EFM8LB12_COMMON                                                   07/16/2019 15:41:45 PAGE 2   
+
+  52   1      }
+  53          
+  54          int16_t com_str_to_int16(uint8_t *str)
+  55          {
+  56   1              idata uint8_t  *ptr = str, i = 0, len = 0, tmp[5];
+  57   1              idata int16_t  temp = 0;
+  58   1              bool IsHex = false;
+  59   1      
+  60   1              memset(tmp,'\0',5);
+  61   1      
+  62   1              if ((strchr(str,'x') != NULL) || (strchr(str,'X') != NULL))
+  63   1              {
+  64   2                      IsHex = true;
+  65   2                      ptr += 2;
+  66   2                      for (i = 0; i < 4 ; i++)
+  67   2                      {
+  68   3                              tmp[i] = *ptr;
+  69   3                              ptr++;
+  70   3                      }
+  71   2                      ptr = tmp;
+  72   2              }
+  73   1              else
+  74   1              {
+  75   2                      ptr = str;
+  76   2              }
+  77   1      
+  78   1              if (IsHex)
+  79   1              {
+  80   2                      len = strlen(ptr);
+  81   2                      for (i = 0; i < len; i++)
+  82   2                      {
+  83   3                              if (*ptr >= '0' && *ptr <= '9')
+  84   3                              {
+  85   4                                      temp += (*ptr-'0') * _com_int_pow(16,len-1-i);
+  86   4                              }
+  87   3                              else if (*ptr >= 'a' && *ptr <= 'f')
+  88   3                              {
+  89   4                                      temp += (*ptr-'a'+ 10) * _com_int_pow(16,len-1-i);
+  90   4                              }
+  91   3                              else if (*ptr >= 'A' && *ptr <= 'F')
+  92   3                              {
+  93   4                                      temp += (*ptr-'A' + 10) * _com_int_pow(16,len-1-i);
+  94   4                              }
+  95   3                              ptr++;
+  96   3                      }
+  97   2              }
+  98   1              else
+  99   1              {
+ 100   2                      temp = (int16_t)atoi(ptr);
+ 101   2              }
+ 102   1      
+ 103   1              return temp;
+ 104   1      }
+ 105          
+ 106          void com_delay(uint16_t sec)
+ 107          {
+ 108   1              Soft_timer_delay_ms(sec);
+ 109   1      }
+ 110          
+ 111          void com_delay_us(uint8_t us)   //excute one time is 72 clock cycles
+ 112          {
+ 113   1              uint8_t i = 0;
+ 114   1      
+C51 COMPILER V9.53.0.0   EFM8LB12_COMMON                                                   07/16/2019 15:41:45 PAGE 3   
+
+ 115   1              for(i = 0; i < us; i++)
+ 116   1              {
+ 117   2                      _nop_();
+ 118   2      
+ 119   2                      _nop_();
+ 120   2                      _nop_();
+ 121   2                      _nop_();
+ 122   2                      _nop_();
+ 123   2                      _nop_();
+ 124   2                      _nop_();
+ 125   2                      _nop_();
+ 126   2                      _nop_();
+ 127   2                      _nop_();
+ 128   2                      _nop_();
+ 129   2      
+ 130   2                      _nop_();
+ 131   2                      _nop_();
+ 132   2                      _nop_();
+ 133   2                      _nop_();
+ 134   2                      _nop_();
+ 135   2                      _nop_();
+ 136   2                      _nop_();
+ 137   2                      _nop_();
+ 138   2                      _nop_();
+ 139   2                      _nop_();
+ 140   2      
+ 141   2                      _nop_();
+ 142   2                      _nop_();
+ 143   2                      _nop_();
+ 144   2                      _nop_();
+ 145   2                      _nop_();
+ 146   2                      _nop_();
+ 147   2                      _nop_();
+ 148   2                      _nop_();
+ 149   2                      _nop_();
+ 150   2                      _nop_();
+ 151   2      
+ 152   2                      _nop_();
+ 153   2                      _nop_();
+ 154   2                      _nop_();
+ 155   2                      _nop_();
+ 156   2                      _nop_();
+ 157   2                      _nop_();
+ 158   2                      _nop_();
+ 159   2                      _nop_();
+ 160   2                      _nop_();
+ 161   2                      _nop_();
+ 162   2      
+ 163   2                      _nop_();
+ 164   2                      _nop_();
+ 165   2                      _nop_();
+ 166   2                      _nop_();
+ 167   2                      _nop_();
+ 168   2                      _nop_();
+ 169   2                      _nop_();
+ 170   2                      _nop_();
+ 171   2                      _nop_();
+ 172   2                      _nop_();
+ 173   2      
+ 174   2      
+ 175   2                      _nop_();
+ 176   2                      _nop_();
+ 177   2                      _nop_();
+C51 COMPILER V9.53.0.0   EFM8LB12_COMMON                                                   07/16/2019 15:41:45 PAGE 4   
+
+ 178   2                      _nop_();
+ 179   2                      _nop_();
+ 180   2                      _nop_();
+ 181   2                      _nop_();
+ 182   2                      _nop_();
+ 183   2              }
+ 184   1      }
+ 185          
+ 186          bool com_get_module_boot_status()
+ 187          {
+ 188   1              uint8_t value = 1, i = 0;
+ 189   1      
+ 190   1              for(i = 0; i < 20; i++)
+ 191   1              {
+ 192   2                      value = 1;
+ 193   2                      if(RET_OK == smb_read_byte(I2C_DEVICE_ADDR, MSA_BOOT_STATUS, &value))
+ 194   2                      {
+ 195   3                              if(GET_BIT(value, 0) != 0x0) //equal to 0 indicate the module boot success
+ 196   3                              {
+ 197   4                                      break;
+ 198   4                              }
+ 199   3                      }
+ 200   2              }
+ 201   1      
+ 202   1              if(i == 20)
+ 203   1              {
+ 204   2                      return true;
+ 205   2              }
+ 206   1      
+ 207   1              return false;
+ 208   1      }
+ 209          
+ 210          bool com_test_board_pre_handle()
+ 211          {
+ 212   1              if(com_get_module_boot_status())
+ 213   1              {
+ 214   2                      printf("%s","\r\nModule boot success");
+ 215   2                      printf("%s","\r\n#McuTestBoard:");
+ 216   2                      return true;
+ 217   2              }
+ 218   1              else
+ 219   1              {
+ 220   2                      printf("%s","\r\nModule boot error");
+ 221   2                      return false;
+ 222   2              }
+ 223   1      
+ 224   1      }
+ 225          
+ 226          uint16_t com_average_value16(uint16_t *buffer, uint8_t length)
+ 227          {
+ 228   1              uint8_t  i  = 0;
+ 229   1              uint16_t max = 0, min = 0;
+ 230   1              uint32_t sum = 0;
+ 231   1      
+ 232   1              max = buffer[0];
+ 233   1              min = buffer[0];
+ 234   1      
+ 235   1              for(i = 0; i < length; i++)
+ 236   1              {
+ 237   2                      if(buffer[i] > max)
+ 238   2                      {
+ 239   3                              max = buffer[i];
+ 240   3                      }
+C51 COMPILER V9.53.0.0   EFM8LB12_COMMON                                                   07/16/2019 15:41:45 PAGE 5   
+
+ 241   2      
+ 242   2                      if(buffer[i] < min)
+ 243   2                      {
+ 244   3                              min = buffer[i];
+ 245   3                      }
+ 246   2                      sum += buffer[i];
+ 247   2              }
+ 248   1      
+ 249   1              sum = sum - min - max;
+ 250   1      
+ 251   1              return (uint16_t)(sum / (length -2));
+ 252   1      }
+ 253          
+ 254          
+ 255          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1242    ----
+   CONSTANT SIZE    =    113    ----
+   XDATA SIZE       =   ----      22
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----      12
+   BIT SIZE         =   ----       1
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
